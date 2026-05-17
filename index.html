@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0f1117" />
+  <meta name="description" content="Gestión de gastos personales" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>GastosBOTijo</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="css/reset.css" />
+  <link rel="stylesheet" href="css/variables.css" />
+  <link rel="stylesheet" href="css/layout.css" />
+  <link rel="stylesheet" href="css/components.css" />
+
+  <!-- Dependencias externas (non-module, deben cargarse antes del entry point) -->
+  <script src="https://accounts.google.com/gsi/client" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
+</head>
+<body>
+
+  <!-- Pantalla de login -->
+  <div id="screen-login" class="screen screen-login">
+    <div class="login-card">
+      <div class="login-logo">
+        <img src="icons/icon-192.png" alt="GastosBOTijo" width="64" height="64" style="border-radius:12px">
+      </div>
+      <h1>GastosBOTijo</h1>
+      <p class="login-subtitle">Tu gestión de gastos personales</p>
+      <button id="btn-login" class="btn btn-primary btn-login">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M17.64 9.205c0-.639-.057-1.252-.164-1.841H9v3.481h4.844a4.14 4.14 0 01-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
+          <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#34A853"/>
+          <path d="M3.964 10.71A5.41 5.41 0 013.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/>
+          <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
+        </svg>
+        Entrar con Google
+      </button>
+      <p id="login-error" class="login-error hidden"></p>
+    </div>
+  </div>
+
+  <!-- Shell principal (oculto hasta auth) -->
+  <div id="screen-app" class="screen screen-app hidden">
+
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <span class="header-title" id="header-title">Transacciones</span>
+      </div>
+      <div class="header-right">
+        <button id="btn-settings" class="btn-icon" title="Ajustes" aria-label="Ajustes" data-nav="settings">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+          </svg>
+        </button>
+        <button id="btn-month-picker" class="btn-icon" title="Cambiar mes" aria-label="Cambiar mes">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+            <line x1="16" y1="2" x2="16" y2="6"/>
+            <line x1="8" y1="2" x2="8" y2="6"/>
+            <line x1="3" y1="10" x2="21" y2="10"/>
+          </svg>
+        </button>
+        <button id="btn-signout" class="btn-icon" title="Cerrar sesión" aria-label="Cerrar sesión">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
+            <polyline points="16 17 21 12 16 7"/>
+            <line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Selector de mes (dropdown) -->
+    <div id="month-picker-dropdown" class="month-picker-dropdown hidden">
+      <div class="month-picker-nav">
+        <button id="btn-month-prev" class="btn-icon" aria-label="Mes anterior">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+        </button>
+        <span id="month-picker-label" class="month-picker-label"></span>
+        <button id="btn-month-next" class="btn-icon" aria-label="Mes siguiente">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Contenido principal -->
+    <main class="app-main">
+
+      <!-- Vista 1: Transacciones -->
+      <section id="view-transactions" class="view active" data-view="transactions">
+        <div class="view-filters">
+          <select id="filter-category" class="filter-select">
+            <option value="">Todas las categorías</option>
+          </select>
+        </div>
+        <div id="transactions-list" class="transactions-list">
+          <!-- Renderizado por JS -->
+        </div>
+        <div id="transactions-empty" class="empty-state hidden">
+          <p>No hay gastos para este mes</p>
+        </div>
+      </section>
+
+      <!-- Vista 2: Presupuesto -->
+      <section id="view-budgets" class="view hidden" data-view="budgets">
+        <div id="budgets-container" class="budgets-container">
+          <!-- Renderizado por JS: dos columnas (Variables / Fijos) -->
+        </div>
+        <div id="budgets-empty" class="empty-state hidden">
+          <p>No hay datos de presupuesto</p>
+        </div>
+      </section>
+
+      <!-- Vista 3: Reportes -->
+      <section id="view-reports" class="view hidden" data-view="reports">
+        <div id="reports-content">
+          <!-- Renderizado por JS -->
+        </div>
+      </section>
+
+      <!-- Vista: Añadir gasto -->
+      <section id="view-add-expense" class="view hidden" data-view="add-expense">
+        <!-- Renderizado por JS -->
+      </section>
+
+      <!-- Vista: Ajustes -->
+      <section id="view-settings" class="view hidden" data-view="settings">
+        <!-- Renderizado por JS -->
+      </section>
+
+      <!-- Vista 4: Gráficas -->
+      <section id="view-charts" class="view hidden" data-view="charts">
+        <div class="chart-container">
+          <h3 class="chart-title">Evolución mensual (6 meses)</h3>
+          <div class="chart-wrapper">
+            <canvas id="chart-bar"></canvas>
+          </div>
+        </div>
+        <div class="chart-container">
+          <h3 class="chart-title">Distribución por categoría</h3>
+          <div class="chart-wrapper chart-wrapper-donut">
+            <canvas id="chart-donut"></canvas>
+          </div>
+        </div>
+
+        <!-- Sección "Me deben dinero" -->
+        <div id="debts-section" class="debts-section">
+          <!-- Renderizado por JS -->
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Navegación inferior -->
+    <nav class="bottom-nav" role="navigation" aria-label="Navegación principal">
+      <button class="nav-btn active" data-nav="transactions" aria-label="Transacciones">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="8" y1="6" x2="21" y2="6"/>
+          <line x1="8" y1="12" x2="21" y2="12"/>
+          <line x1="8" y1="18" x2="21" y2="18"/>
+          <line x1="3" y1="6" x2="3.01" y2="6"/>
+          <line x1="3" y1="12" x2="3.01" y2="12"/>
+          <line x1="3" y1="18" x2="3.01" y2="18"/>
+        </svg>
+        <span>Gastos</span>
+      </button>
+      <button class="nav-btn" data-nav="budgets" aria-label="Presupuesto">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="1" x2="12" y2="23"/>
+          <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+        </svg>
+        <span>Budget</span>
+      </button>
+      <button class="nav-btn nav-btn-add" data-nav="add-expense" aria-label="Añadir gasto">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <line x1="12" y1="5" x2="12" y2="19"/>
+          <line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        <span>Añadir</span>
+      </button>
+      <button class="nav-btn" data-nav="reports" aria-label="Reportes">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="16" y1="13" x2="8" y2="13"/>
+          <line x1="16" y1="17" x2="8" y2="17"/>
+          <polyline points="10 9 9 9 8 9"/>
+        </svg>
+        <span>Reportes</span>
+      </button>
+      <button class="nav-btn" data-nav="charts" aria-label="Gráficas">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="20" x2="18" y2="10"/>
+          <line x1="12" y1="20" x2="12" y2="4"/>
+          <line x1="6" y1="20" x2="6" y2="14"/>
+        </svg>
+        <span>Gráficas</span>
+      </button>
+    </nav>
+
+  </div><!-- /screen-app -->
+
+  <!-- Modal de edición -->
+  <div id="modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h2 id="modal-title" class="modal-title">Editar gasto</h2>
+        <button id="modal-close" class="btn-icon" aria-label="Cerrar">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div id="modal-body" class="modal-body">
+        <!-- Rellenado por JS -->
+      </div>
+      <div id="modal-footer" class="modal-footer">
+        <!-- Rellenado por JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Overlay de carga -->
+  <div id="loading-overlay" class="loading-overlay hidden" aria-live="polite" aria-label="Cargando">
+    <div class="loading-spinner"></div>
+    <p id="loading-text" class="loading-text">Cargando datos…</p>
+  </div>
+
+  <!-- Toast de notificaciones -->
+  <div id="toast" class="toast hidden" role="alert" aria-live="assertive"></div>
+
+  <!-- Entry point JS (debe ir al final, tras los scripts defer) -->
+  <script type="module" src="js/app.js"></script>
+
+</body>
+</html>

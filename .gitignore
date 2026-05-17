@@ -1,0 +1,48 @@
+# =========================================================
+# OS / Editor
+# =========================================================
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# =========================================================
+# Editor / IDE
+# =========================================================
+.vscode/
+.idea/
+
+# =========================================================
+# Claude Code (planes, transcripts, config local)
+# =========================================================
+.claude/
+
+# =========================================================
+# Firebase (cache local de CLI, builds, logs)
+# =========================================================
+.firebase/
+firebase-debug.log
+firebase-debug.*.log
+*.firebase.cache
+
+# =========================================================
+# Node (por si en el futuro se añaden dependencias)
+# =========================================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# =========================================================
+# Variables de entorno / secretos
+# =========================================================
+.env
+.env.*
+!.env.example
+
+# =========================================================
+# Config local (con SPREADSHEET_ID y OAUTH_CLIENT_ID reales).
+# Cada desarrollador copia config.example.js → config.js y rellena
+# con sus propios valores. config.example.js sí está versionado.
+# =========================================================
+js/config.js
