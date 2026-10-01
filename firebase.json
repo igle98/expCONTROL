@@ -5,6 +5,7 @@
       "firebase.json",
       ".firebaserc",
       "**/.*",
+      "**/.*/**",
       "node_modules/**",
       "README.md",
       "js/config.example.js",
