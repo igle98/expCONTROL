@@ -7,7 +7,9 @@
       "**/.*",
       "node_modules/**",
       "README.md",
-      "js/config.example.js"
+      "js/config.example.js",
+      "package.json",
+      "package-lock.json"
     ],
     "headers": [
       {

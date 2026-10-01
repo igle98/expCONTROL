@@ -6,7 +6,7 @@
 //   - Network-first + cache: CDN externo (Chart.js)
 // =========================================================
 
-const CACHE_NAME  = 'gastos-shell-v9';
+const CACHE_NAME  = 'gastos-shell-v10';
 
 const SHELL_ASSETS = [
   '/',

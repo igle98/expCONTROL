@@ -1,0 +1,21 @@
+{
+  "name": "gastosbotijo",
+  "version": "1.0.0",
+  "description": "PWA de control de gastos personales, sin backend, con clasificación de gastos mediante IA y Google Sheets como base de datos.",
+  "private": true,
+  "scripts": {
+    "dev": "npx --yes http-server -p 5500 -c-1 .",
+    "build": "echo \"GastosBOTijo es una PWA estatica (JS vanilla, sin bundler): no requiere build. Archivos servidos tal cual.\"",
+    "deploy": "firebase deploy"
+  },
+  "keywords": [
+    "pwa",
+    "vanilla-js",
+    "google-sheets",
+    "openai",
+    "firebase-hosting",
+    "service-worker",
+    "expense-tracker"
+  ],
+  "license": "MIT"
+}

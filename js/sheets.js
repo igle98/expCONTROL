@@ -2,7 +2,7 @@ import { SPREADSHEET_ID, API_BASE, SHEETS, TX_COL, BK_COL, BH_COL, MM_COL, DEBT_
 import { getToken } from './auth.js';
 import {
   setTransactions, setBudgets, setSheetMeta, setBudgetHistory,
-  setMerchantMap, upsertMerchantMap, setDebts,
+  setMerchantMap, upsertMerchantMap, setDebts, sheetMeta,
 } from './state.js';
 
 // =========================================================
@@ -268,6 +268,50 @@ export async function appendTransaction(tx) {
     `${API_BASE}/${SPREADSHEET_ID}/values/${encodeURIComponent(appendRange)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
     { method: 'POST', body: JSON.stringify({ values: [row] }) }
   );
+
+  // Garantiza que la columna AMOUNT (E) tenga formato numérico.
+  // RAW respeta el formato de celda existente, y las filas nuevas heredan
+  // el de la fila anterior; si alguna quedó como Fecha, el número se mostraría
+  // como fecha. Forzar el formato es idempotente y auto-cura filas antiguas.
+  await _ensureAmountColumnNumberFormat();
+}
+
+/**
+ * Aplica formato numérico (0.00) a toda la columna AMOUNT de TRANSACTIONS.
+ * No-op silencioso si no conocemos el sheetId todavía.
+ */
+async function _ensureAmountColumnNumberFormat() {
+  const sheetId = sheetMeta[SHEETS.TRANSACTIONS];
+  if (sheetId === undefined || sheetId === null) return;
+  try {
+    await _apiFetch(
+      `${API_BASE}/${SPREADSHEET_ID}:batchUpdate`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          requests: [{
+            repeatCell: {
+              range: {
+                sheetId,
+                startRowIndex:    1,                  // salta la cabecera
+                startColumnIndex: TX_COL.AMOUNT,      // E (índice 4)
+                endColumnIndex:   TX_COL.AMOUNT + 1,
+              },
+              cell: {
+                userEnteredFormat: {
+                  numberFormat: { type: 'NUMBER', pattern: '0.00' },
+                },
+              },
+              fields: 'userEnteredFormat.numberFormat',
+            },
+          }],
+        }),
+      }
+    );
+  } catch (err) {
+    // El formato es cosmético: si falla, no bloqueamos el guardado del gasto.
+    console.warn('[sheets] No se pudo forzar formato numérico en AMOUNT:', err.message);
+  }
 }
 
 /**
@@ -318,7 +362,9 @@ export async function updateTransaction(rowIndex, fields) {
     data.push({ range: `${SHEETS.TRANSACTIONS}!D${sheetRow}`, values: [[isoDate]] });
   }
   if (fields.amount !== undefined) {
-    data.push({ range: `${SHEETS.TRANSACTIONS}!E${sheetRow}`, values: [[String(fields.amount)]] });
+    // Número crudo (no string): con RAW evita que el locale de la hoja
+    // interprete "5.5" (punto) como fecha o texto.
+    data.push({ range: `${SHEETS.TRANSACTIONS}!E${sheetRow}`, values: [[Number(fields.amount)]] });
   }
   if (fields.merchantNorm !== undefined) {
     data.push({ range: `${SHEETS.TRANSACTIONS}!H${sheetRow}`, values: [[String(fields.merchantNorm)]] });
@@ -333,9 +379,14 @@ export async function updateTransaction(rowIndex, fields) {
     `${API_BASE}/${SPREADSHEET_ID}/values:batchUpdate`,
     {
       method: 'POST',
-      body:   JSON.stringify({ valueInputOption: 'USER_ENTERED', data }),
+      body:   JSON.stringify({ valueInputOption: 'RAW', data }),
     }
   );
+
+  // Si se tocó el importe, garantiza formato numérico en la columna E.
+  if (fields.amount !== undefined) {
+    await _ensureAmountColumnNumberFormat();
+  }
 }
 
 /**
