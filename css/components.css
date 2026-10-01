@@ -1115,6 +1115,62 @@ option {
   color: var(--text-secondary);
 }
 
+/* =========================================================
+   FUTURE — sección "Compras y pagos futuros" (en view-charts)
+   Reutiliza la estructura visual de DEBTS (.debts-*, .debt-*)
+   ========================================================= */
+.future-totals { text-align: right; }
+.future-total {
+  font-size: var(--text-xl);
+  font-weight: var(--font-bold);
+  color: var(--accent);
+}
+.future-total-sub {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.future-group-header { cursor: default; }
+.future-group-header:hover { background: transparent; }
+.future-month-name { text-transform: none; }
+.future-group-total { color: var(--accent); }
+
+.future-badge {
+  font-size: 10px;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-full);
+  font-weight: var(--font-semibold);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+}
+.future-priority-high   { background: var(--danger-dim);  color: var(--danger);  }
+.future-priority-medium { background: var(--warning-dim); color: var(--warning); }
+.future-priority-low    { background: var(--bg-input);    color: var(--text-muted); }
+
+.future-badge-wanted    { background: var(--accent-dim);  color: var(--accent);  }
+.future-badge-committed { background: var(--warning-dim); color: var(--warning); }
+.future-badge-bought    { background: var(--success-dim); color: var(--success); }
+.future-badge-cancelled { background: var(--bg-input);    color: var(--text-muted); }
+
+/* Atrasado: sigue pendiente y su fecha ya pasó */
+.debt-item.future-overdue .debt-item-amount,
+.future-overdue-label { color: var(--danger); }
+
+/* Comprados / cancelados: atenuados */
+.debt-item.future-status-bought,
+.debt-item.future-status-cancelled { opacity: 0.7; }
+.debt-item.future-status-cancelled .debt-item-amount {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+/* Modal: mes + día en la misma fila */
+.future-date-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: var(--space-3);
+}
+
 /* btn-success (no existía antes) */
 .btn-success {
   background: var(--success);

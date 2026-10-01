@@ -22,6 +22,9 @@ export let merchantMap = new Map();
 /** @type {Debt[]} */
 export let debts = [];
 
+/** @type {FutureItem[]} */
+export let futureItems = [];
+
 /** Mes activo en formato 'YYYY-MM' */
 export let currentMonth = _thisMonth();
 
@@ -40,6 +43,7 @@ export function upsertMerchantMap(entry) {
   merchantMap.set(entry.merchantNorm, entry);
 }
 export function setDebts(rows)        { debts = rows; }
+export function setFutureItems(rows)  { futureItems = rows; }
 
 // =========================================================
 // Queries derivadas — DEBTS
@@ -82,6 +86,53 @@ export function getTotalPendingDebts() {
   return debts
     .filter(d => d.status === 'pending')
     .reduce((s, d) => s + d.amount, 0);
+}
+
+// =========================================================
+// Queries derivadas — FUTURE (compras y pagos futuros)
+// =========================================================
+
+/** Estados que siguen "vivos" (aún no comprados ni cancelados) */
+export const FUTURE_OPEN_STATUSES = ['wanted', 'committed'];
+
+const _PRIORITY_ORDER = { high: 0, medium: 1, low: 2 };
+
+/**
+ * Agrupa las compras futuras por mes ('YYYY-MM'), en orden cronológico.
+ * Dentro de cada mes: prioridad (alta → baja) y luego fecha.
+ * @param {string} statusFilter  'open' | 'wanted' | 'committed' | 'bought' | 'cancelled' | 'all'
+ * @returns {Array<{month: string, items: FutureItem[], total: number}>}
+ */
+export function getFutureByMonth(statusFilter = 'open') {
+  const groups = new Map();
+  for (const f of futureItems) {
+    if (statusFilter === 'open' && !FUTURE_OPEN_STATUSES.includes(f.status)) continue;
+    if (statusFilter !== 'open' && statusFilter !== 'all' && f.status !== statusFilter) continue;
+    const month = f.date.slice(0, 7);
+    if (!groups.has(month)) groups.set(month, { month, items: [], total: 0 });
+    const g = groups.get(month);
+    g.items.push(f);
+    g.total += f.amount;
+  }
+  for (const g of groups.values()) {
+    g.items.sort((a, b) =>
+      (_PRIORITY_ORDER[a.priority] ?? 1) - (_PRIORITY_ORDER[b.priority] ?? 1)
+      || a.date.localeCompare(b.date));
+  }
+  // Sin fecha ('') va al final
+  return [...groups.values()].sort((a, b) =>
+    (a.month || '9999').localeCompare(b.month || '9999'));
+}
+
+/** Totales previstos: todo lo pendiente y solo lo comprometido */
+export function getFutureTotals() {
+  let open = 0, committed = 0;
+  for (const f of futureItems) {
+    if (!FUTURE_OPEN_STATUSES.includes(f.status)) continue;
+    open += f.amount;
+    if (f.status === 'committed') committed += f.amount;
+  }
+  return { open, committed };
 }
 
 function _titleCase(str) {

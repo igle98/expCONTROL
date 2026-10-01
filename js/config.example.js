@@ -29,6 +29,7 @@ export const SHEETS = {
   MERCHANT_MAP:   'MERCHANT_MAP',
   BUDGET_HISTORY: 'BUDGET_HISTORY',
   DEBTS:          'DEBTS',
+  FUTURE:         'FUTURE',
 };
 
 // Índices de columna en TRANSACTIONS (0-based)
@@ -98,6 +99,20 @@ export const DEBT_COL = {
   STATUS:       5,
   DATE_PAID:    6,
   NOTES:        7,
+};
+
+// Índices de columna en FUTURE (0-based) — compras y pagos futuros
+// id | concept | amount | date | priority | status | notes | date_updated
+// `date` puede ser un mes ('YYYY-MM') o un día concreto ('YYYY-MM-DD').
+export const FUTURE_COL = {
+  ID:           0,
+  CONCEPT:      1,
+  AMOUNT:       2,
+  DATE:         3,
+  PRIORITY:     4,
+  STATUS:       5,
+  NOTES:        6,
+  DATE_UPDATED: 7,
 };
 
 export const API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';

@@ -1,8 +1,8 @@
-import { SPREADSHEET_ID, API_BASE, SHEETS, TX_COL, BK_COL, BH_COL, MM_COL, DEBT_COL } from './config.js';
+import { SPREADSHEET_ID, API_BASE, SHEETS, TX_COL, BK_COL, BH_COL, MM_COL, DEBT_COL, FUTURE_COL } from './config.js';
 import { getToken } from './auth.js';
 import {
   setTransactions, setBudgets, setSheetMeta, setBudgetHistory,
-  setMerchantMap, upsertMerchantMap, setDebts, sheetMeta,
+  setMerchantMap, upsertMerchantMap, setDebts, setFutureItems, sheetMeta,
 } from './state.js';
 
 // =========================================================
@@ -29,6 +29,7 @@ export async function loadAll() {
     loadBudgetHistory(),
     loadMerchantMap(),
     loadDebts(),
+    loadFuture(),
   ]);
 }
 
@@ -551,6 +552,165 @@ export async function deleteDebt(rowIndex, sheetId) {
     }
   );
   await loadDebts();
+}
+
+// =========================================================
+// FUTURE — compras y pagos futuros
+// =========================================================
+
+const FUTURE_HEADER = ['id', 'concept', 'amount', 'date', 'priority', 'status', 'notes', 'date_updated'];
+
+/** Carga FUTURE completo y actualiza state */
+export async function loadFuture() {
+  const range = `${SHEETS.FUTURE}!A:H`;
+  let data;
+  try {
+    data = await _apiFetch(
+      `${API_BASE}/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}`
+    );
+  } catch (err) {
+    // La pestaña se crea sola al añadir el primer elemento
+    if (err.status === 400 || err.status === 404) {
+      setFutureItems([]);
+      return;
+    }
+    throw err;
+  }
+  const rows = data.values ?? [];
+  const items = [];
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row[FUTURE_COL.ID] && !row[FUTURE_COL.CONCEPT]) continue;
+    items.push({
+      rowIndex:    i,
+      id:          String(row[FUTURE_COL.ID]       ?? '').trim(),
+      concept:     String(row[FUTURE_COL.CONCEPT]  ?? '').trim(),
+      amount:      _parseNumber(row[FUTURE_COL.AMOUNT]),
+      date:        _parseFutureDate(row[FUTURE_COL.DATE]),
+      priority:    String(row[FUTURE_COL.PRIORITY] ?? 'medium').trim().toLowerCase() || 'medium',
+      status:      String(row[FUTURE_COL.STATUS]   ?? 'wanted').trim().toLowerCase() || 'wanted',
+      notes:       String(row[FUTURE_COL.NOTES]    ?? '').trim(),
+      dateUpdated: _parseDate(row[FUTURE_COL.DATE_UPDATED]),
+    });
+  }
+  setFutureItems(items);
+}
+
+/**
+ * Añade un elemento a FUTURE (crea la pestaña si no existe).
+ * @param {{
+ *   id: string, concept: string, amount: number, date: string,
+ *   priority: string, status: string, notes?: string, dateUpdated: string
+ * }} item
+ */
+export async function appendFuture(item) {
+  await _ensureFutureSheet();
+  const row = [
+    item.id,
+    item.concept,
+    Number(item.amount),
+    item.date,
+    item.priority,
+    item.status,
+    item.notes || '',
+    item.dateUpdated,
+  ];
+  const appendRange = `${SHEETS.FUTURE}!A:H`;
+  await _apiFetch(
+    `${API_BASE}/${SPREADSHEET_ID}/values/${encodeURIComponent(appendRange)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    { method: 'POST', body: JSON.stringify({ values: [row] }) }
+  );
+}
+
+/**
+ * Actualiza una fila de FUTURE.
+ * @param {number} rowIndex  Índice 0-based (header = 0)
+ * @param {{concept?: string, amount?: number, date?: string, priority?: string,
+ *          status?: string, notes?: string, dateUpdated?: string}} fields
+ */
+export async function updateFuture(rowIndex, fields) {
+  const sheetRow = rowIndex + 1;
+  // B concept, C amount, D date, E priority, F status, G notes, H date_updated
+  const cols = {
+    concept: 'B', amount: 'C', date: 'D', priority: 'E',
+    status: 'F', notes: 'G', dateUpdated: 'H',
+  };
+  const data = [];
+  for (const [key, col] of Object.entries(cols)) {
+    if (fields[key] === undefined) continue;
+    const value = key === 'amount' ? Number(fields[key]) : String(fields[key]);
+    data.push({ range: `${SHEETS.FUTURE}!${col}${sheetRow}`, values: [[value]] });
+  }
+  if (data.length === 0) return;
+
+  // RAW: evita que Sheets convierta '2026-12' en fecha o lea '5.5' según el locale
+  await _apiFetch(
+    `${API_BASE}/${SPREADSHEET_ID}/values:batchUpdate`,
+    { method: 'POST', body: JSON.stringify({ valueInputOption: 'RAW', data }) }
+  );
+}
+
+/**
+ * Elimina una fila de FUTURE.
+ * @param {number} rowIndex  Índice 0-based (header = 0)
+ */
+export async function deleteFuture(rowIndex) {
+  let sheetId = sheetMeta[SHEETS.FUTURE];
+  if (sheetId === undefined || sheetId === null) {
+    await loadSheetMeta();
+    sheetId = sheetMeta[SHEETS.FUTURE];
+  }
+  if (sheetId === undefined || sheetId === null) {
+    throw new Error(`No se encontró la pestaña ${SHEETS.FUTURE} en la hoja`);
+  }
+  await _apiFetch(
+    `${API_BASE}/${SPREADSHEET_ID}:batchUpdate`,
+    {
+      method: 'POST',
+      body:   JSON.stringify({
+        requests: [{
+          deleteDimension: {
+            range: {
+              sheetId,
+              dimension:  'ROWS',
+              startIndex: rowIndex,
+              endIndex:   rowIndex + 1,
+            },
+          },
+        }],
+      }),
+    }
+  );
+  await loadFuture();
+}
+
+/** Crea la pestaña FUTURE con su cabecera si todavía no existe. */
+async function _ensureFutureSheet() {
+  if (sheetMeta[SHEETS.FUTURE] !== undefined) return;
+  await loadSheetMeta();
+  if (sheetMeta[SHEETS.FUTURE] !== undefined) return;
+
+  await _apiFetch(
+    `${API_BASE}/${SPREADSHEET_ID}:batchUpdate`,
+    {
+      method: 'POST',
+      body:   JSON.stringify({
+        requests: [{ addSheet: { properties: { title: SHEETS.FUTURE } } }],
+      }),
+    }
+  );
+  await _apiFetch(
+    `${API_BASE}/${SPREADSHEET_ID}/values/${encodeURIComponent(`${SHEETS.FUTURE}!A1:H1`)}?valueInputOption=RAW`,
+    { method: 'PUT', body: JSON.stringify({ values: [FUTURE_HEADER] }) }
+  );
+  await loadSheetMeta();
+}
+
+/** Igual que _parseDate pero acepta también un mes suelto ('YYYY-MM'). */
+function _parseFutureDate(value) {
+  const str = String(value ?? '').trim();
+  if (/^\d{4}-\d{2}$/.test(str)) return str;
+  return _parseDate(str);
 }
 
 // =========================================================

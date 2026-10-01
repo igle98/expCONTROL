@@ -1,5 +1,6 @@
 import * as state from '../state.js';
 import * as debts from './debts.js';
+import * as future from './future.js';
 import { getCategoryColor } from '../utils/colors.js';
 import { formatCurrency, formatMonthShort } from '../utils/formatters.js';
 
@@ -17,8 +18,9 @@ export function render() {
     _renderBarChart();
     _renderDonutChart();
   }
-  // Sección "Me deben" al final
+  // Secciones "Me deben" y "Compras futuras" al final
   debts.render();
+  future.render();
 }
 
 // =========================================================
