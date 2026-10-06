@@ -1,7 +1,7 @@
 import { SPREADSHEET_ID, API_BASE, SHEETS, TX_COL, BK_COL, BH_COL, MM_COL, DEBT_COL, FUTURE_COL } from './config.js';
 import { getToken } from './auth.js';
 import {
-  setTransactions, setBudgets, setSheetMeta, setBudgetHistory,
+  setTransactions, setBudgets, setAllBudgetKeys, setSheetMeta, setBudgetHistory,
   setMerchantMap, upsertMerchantMap, setDebts, setFutureItems, sheetMeta,
 } from './state.js';
 
@@ -49,29 +49,29 @@ export async function loadTransactions() {
   setTransactions(txs);
 }
 
-/** Carga BUDGET_KEYS y actualiza state (solo los activos) */
+/** Carga BUDGET_KEYS y actualiza state (budgets = solo los activos) */
 export async function loadBudgetKeys() {
   const range = `${SHEETS.BUDGET_KEYS}!A:F`;
   const data  = await _apiFetch(
     `${API_BASE}/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}`
   );
-  const rows    = data.values ?? [];
-  const budgets = [];
+  const rows = data.values ?? [];
+  const all  = [];
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
     if (!row[BK_COL.BUDGET_KEY]) continue;
-    // Filtrar por columna "active" (F, índice 5) — checkbox = TRUE/FALSE
-    const active = String(row[BK_COL.ACTIVE] ?? '').toUpperCase();
-    if (active !== 'TRUE') continue;
-    budgets.push({
+    all.push({
       budgetKey:      String(row[BK_COL.BUDGET_KEY]).trim(),
       type:           String(row[BK_COL.TYPE] ?? '').trim(),         // "Fijo" o "Variable"
       monthlyBudget:  _parseNumber(row[BK_COL.MONTHLY_BUDGET]),
       fixedAmount:    _parseNumber(row[BK_COL.FIXED_AMOUNT]),
       dueDay:         _parseNumber(row[BK_COL.DUE_DAY]),
+      // Columna "active" (F, índice 5) — checkbox = TRUE/FALSE
+      active:         String(row[BK_COL.ACTIVE] ?? '').toUpperCase() === 'TRUE',
     });
   }
-  setBudgets(budgets);
+  setAllBudgetKeys(all);
+  setBudgets(all.filter(b => b.active).map(({ active, ...b }) => b));
 }
 
 /** Carga BUDGET_HISTORY completo y actualiza state */
@@ -416,6 +416,157 @@ export async function deleteTransaction(rowIndex, sheetId) {
   );
   // Recargamos para obtener los rowIndex correctos (evitar drift)
   await loadTransactions();
+}
+
+// =========================================================
+// BUDGET_KEYS — gestión de categorías
+// =========================================================
+// El nombre de la categoría (budget_key) está copiado como texto en
+// TRANSACTIONS, MERCHANT_MAP y BUDGET_HISTORY. Al renombrar o eliminar
+// hay que propagar el cambio a mano para no dejar referencias huérfanas.
+
+/**
+ * Añade una categoría nueva (activa) a BUDGET_KEYS.
+ * @param {{budgetKey:string, type:string, monthlyBudget?:number,
+ *          fixedAmount?:number, dueDay?:number}} cat
+ */
+export async function appendBudgetKey(cat) {
+  const appendRange = `${SHEETS.BUDGET_KEYS}!A:F`;
+  await _apiFetch(
+    `${API_BASE}/${SPREADSHEET_ID}/values/${encodeURIComponent(appendRange)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    { method: 'POST', body: JSON.stringify({ values: [_budgetKeyRow({ ...cat, active: true })] }) }
+  );
+}
+
+/**
+ * Actualiza una categoría. Si cambia el nombre o el tipo, lo propaga a
+ * TRANSACTIONS y MERCHANT_MAP (budget_key + type). El nombre también se
+ * propaga a BUDGET_HISTORY para no partir el histórico en dos.
+ * @param {{budgetKey:string, type:string}} oldCat
+ * @param {{budgetKey:string, type:string, monthlyBudget?:number,
+ *          fixedAmount?:number, dueDay?:number, active:boolean}} cat
+ * @returns {Promise<{transactions:number, merchants:number}>}
+ */
+export async function updateBudgetKey(oldCat, cat) {
+  const refs = await _findBudgetKeyRefs(oldCat.budgetKey);
+  if (refs.budgetKeyRows.length === 0) {
+    throw new Error(`No se encontró la categoría ${oldCat.budgetKey} en ${SHEETS.BUDGET_KEYS}`);
+  }
+
+  const renamed = cat.budgetKey !== oldCat.budgetKey;
+  const data = refs.budgetKeyRows.map(r => ({
+    range:  `${SHEETS.BUDGET_KEYS}!A${r}:F${r}`,
+    values: [_budgetKeyRow(cat)],
+  }));
+  if (renamed || cat.type !== oldCat.type) {
+    data.push(..._retargetData(refs, cat.budgetKey, cat.type, { history: renamed }));
+  }
+  await _batchValuesUpdate(data);
+
+  return { transactions: refs.txRows.length, merchants: refs.mmRows.length };
+}
+
+/**
+ * Elimina una categoría de BUDGET_KEYS.
+ * - Sus gastos y comercios aprendidos pasan a `target` (obligatorio si tiene gastos).
+ * - Sin `target`, los comercios aprendidos se borran (la IA los volverá a clasificar).
+ * - BUDGET_HISTORY no se toca: los meses pasados conservan su foto.
+ * @param {string} budgetKey
+ * @param {{budgetKey:string, type:string}|null} target
+ * @returns {Promise<{transactions:number, merchants:number}>}
+ */
+export async function deleteBudgetKey(budgetKey, target) {
+  const refs = await _findBudgetKeyRefs(budgetKey);
+  if (refs.budgetKeyRows.length === 0) {
+    throw new Error(`No se encontró la categoría ${budgetKey} en ${SHEETS.BUDGET_KEYS}`);
+  }
+  if (refs.txRows.length > 0 && !target) {
+    throw new Error('La categoría tiene gastos: elige a qué categoría moverlos');
+  }
+
+  if (target) {
+    const data = _retargetData(refs, target.budgetKey, target.type, { history: false });
+    if (data.length > 0) await _batchValuesUpdate(data);
+  }
+
+  const rowsToDelete = refs.budgetKeyRows.map(r => [sheetMeta[SHEETS.BUDGET_KEYS], r]);
+  if (!target) {
+    rowsToDelete.push(...refs.mmRows.map(r => [sheetMeta[SHEETS.MERCHANT_MAP], r]));
+  }
+  // De abajo arriba, para que borrar una fila no desplace a las siguientes
+  rowsToDelete.sort((a, b) => b[1] - a[1]);
+  await _apiFetch(
+    `${API_BASE}/${SPREADSHEET_ID}:batchUpdate`,
+    {
+      method: 'POST',
+      body:   JSON.stringify({
+        requests: rowsToDelete.map(([sheetId, row]) => ({
+          deleteDimension: {
+            range: { sheetId, dimension: 'ROWS', startIndex: row - 1, endIndex: row },
+          },
+        })),
+      }),
+    }
+  );
+
+  return { transactions: refs.txRows.length, merchants: refs.mmRows.length };
+}
+
+function _budgetKeyRow(cat) {
+  const num = v => (v === undefined || v === null || v === '' || isNaN(v)) ? '' : Number(v);
+  // budget_key | type | monthly_budget | fixed_amount | due_day | active
+  return [cat.budgetKey, cat.type, num(cat.monthlyBudget), num(cat.fixedAmount), num(cat.dueDay), Boolean(cat.active)];
+}
+
+/**
+ * Busca (con una sola lectura batchGet) las filas que referencian `budgetKey`.
+ * Devuelve números de fila 1-based (A1) por hoja.
+ */
+async function _findBudgetKeyRefs(budgetKey) {
+  const targets = [
+    ['budgetKeyRows', SHEETS.BUDGET_KEYS,    'A'],
+    ['txRows',        SHEETS.TRANSACTIONS,   'K'],
+    ['mmRows',        SHEETS.MERCHANT_MAP,   'B'],
+    ['historyRows',   SHEETS.BUDGET_HISTORY, 'B'],
+  ].filter(([, sheet]) => sheetMeta[sheet] !== undefined);   // pestañas opcionales
+
+  const qs = targets
+    .map(([, sheet, col]) => `ranges=${encodeURIComponent(`${sheet}!${col}:${col}`)}`)
+    .join('&');
+  const data = await _apiFetch(`${API_BASE}/${SPREADSHEET_ID}/values:batchGet?${qs}`);
+
+  const refs = { budgetKeyRows: [], txRows: [], mmRows: [], historyRows: [] };
+  targets.forEach(([name], idx) => {
+    const values = data.valueRanges?.[idx]?.values ?? [];
+    for (let i = 1; i < values.length; i++) {   // fila 0 = cabecera
+      if (String(values[i]?.[0] ?? '').trim() === budgetKey) refs[name].push(i + 1);
+    }
+  });
+  return refs;
+}
+
+/** Rangos para reasignar gastos y comercios (y opcionalmente histórico) a otra categoría */
+function _retargetData(refs, budgetKey, type, { history }) {
+  const data = [];
+  for (const r of refs.txRows) {
+    data.push({ range: `${SHEETS.TRANSACTIONS}!K${r}:L${r}`, values: [[budgetKey, type]] });
+  }
+  for (const r of refs.mmRows) {
+    data.push({ range: `${SHEETS.MERCHANT_MAP}!B${r}:C${r}`, values: [[budgetKey, type]] });
+  }
+  if (history) {
+    for (const r of refs.historyRows) {
+      data.push({ range: `${SHEETS.BUDGET_HISTORY}!B${r}`, values: [[budgetKey]] });
+    }
+  }
+  return data;
+}
+
+async function _batchValuesUpdate(data) {
+  await _apiFetch(
+    `${API_BASE}/${SPREADSHEET_ID}/values:batchUpdate`,
+    { method: 'POST', body: JSON.stringify({ valueInputOption: 'RAW', data }) }
+  );
 }
 
 // =========================================================

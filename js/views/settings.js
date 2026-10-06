@@ -1,9 +1,10 @@
 // =========================================================
-// settings.js — pantalla de Ajustes (de momento solo OpenAI key).
+// settings.js — pantalla de Ajustes: OpenAI key y gestión de categorías.
 // =========================================================
 
 import { el, showToast } from '../utils/dom.js';
 import { getOpenAIKey, setOpenAIKey } from '../expense/classifier.js';
+import * as viewCategories from './categories.js';
 
 const ROOT_ID = 'view-settings';
 
@@ -63,5 +64,7 @@ export function render() {
 
   root.replaceChildren(
     el('div', { class: 'settings-card' }, form),
+    el('div', { id: 'categories-section' }),
   );
+  viewCategories.render();
 }

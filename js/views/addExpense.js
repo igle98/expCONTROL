@@ -14,7 +14,7 @@ import { classifyWithOpenAI, hasOpenAIKey } from '../expense/classifier.js';
 const ROOT_ID = 'view-add-expense';
 
 // Categorías especiales: si el merchant_raw las contiene, se asigna directamente.
-const SPECIAL_KEYWORDS = [
+export const SPECIAL_KEYWORDS = [
   { keyword: 'imprevisto',  budgetKey: 'IMPREVISTOS',  source: 'imprevisto'  },
   { keyword: 'invitacion',  budgetKey: 'INVITACIONES', source: 'invitacion'  },
   { keyword: 'invitación',  budgetKey: 'INVITACIONES', source: 'invitacion'  },
@@ -324,7 +324,10 @@ function _goSettings() {
 
 function _matchSpecial(merchantRaw) {
   const lower = (merchantRaw || '').toLowerCase();
-  return SPECIAL_KEYWORDS.find(s => lower.includes(s.keyword)) || null;
+  // Solo si la categoría sigue activa (p.ej. no se ha renombrado ni archivado)
+  return SPECIAL_KEYWORDS.find(s =>
+    lower.includes(s.keyword) && state.budgets.some(b => b.budgetKey === s.budgetKey),
+  ) || null;
 }
 
 function _stripKeyword(text, keyword) {

@@ -10,6 +10,9 @@ export let transactions = [];
 /** @type {Budget[]} */
 export let budgets = [];
 
+/** @type {Array} Todas las categorías de BUDGET_KEYS (activas y archivadas) */
+export let allBudgetKeys = [];
+
 /** @type {Array} */
 export let budgetHistory = [];
 
@@ -34,6 +37,7 @@ export let currentMonth = _thisMonth();
 
 export function setTransactions(rows) { transactions = rows; }
 export function setBudgets(rows)      { budgets = rows; }
+export function setAllBudgetKeys(rows) { allBudgetKeys = rows; }
 export function setSheetMeta(meta)    { sheetMeta = meta; }
 export function setBudgetHistory(rows) { budgetHistory = rows; }
 export function setCurrentMonth(m)    { currentMonth = m; }
