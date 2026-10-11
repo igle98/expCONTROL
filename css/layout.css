@@ -244,3 +244,20 @@ body {
     overflow: hidden;
   }
 }
+
+/* Aviso de datos de prueba (solo en localhost) */
+.test-data-badge {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  padding: 2px var(--space-3);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  background: var(--warning);
+  color: var(--text-inverse);
+  font-size: 10px;
+  font-weight: var(--font-bold);
+  letter-spacing: 0.05em;
+  pointer-events: none;
+}

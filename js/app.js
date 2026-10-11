@@ -8,6 +8,7 @@ import * as sheets  from './sheets.js';
 import * as state   from './state.js';
 import { setLoading, showToast, show, hide } from './utils/dom.js';
 import { formatMonth } from './utils/formatters.js';
+import { IS_LOCAL } from './config.js';
 
 import * as viewTransactions from './views/transactions.js';
 import * as viewBudgets      from './views/budgets.js';
@@ -21,6 +22,7 @@ import * as viewSettings     from './views/settings.js';
 // =========================================================
 
 document.addEventListener('DOMContentLoaded', () => {
+  if (IS_LOCAL) _showTestDataBadge();
   _registerSW();
   _setupLoginButton();
   _setupSignOut();
@@ -236,4 +238,16 @@ function _registerSW() {
 function _thisMonth() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+// =========================================================
+// Aviso de datos de prueba (solo en localhost)
+// =========================================================
+
+function _showTestDataBadge() {
+  document.title = `[PRUEBAS] ${document.title}`;
+  const badge = document.createElement('div');
+  badge.className = 'test-data-badge';
+  badge.textContent = 'DATOS DE PRUEBA';
+  document.body.appendChild(badge);
 }

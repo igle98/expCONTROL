@@ -8,6 +8,7 @@
       "**/.*/**",
       "node_modules/**",
       "README.md",
+      "docs/**",
       "js/config.example.js",
       "package.json",
       "package-lock.json"

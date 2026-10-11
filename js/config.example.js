@@ -12,7 +12,11 @@
 
 // ID del Google Sheet que actúa como backend.
 // Lo encuentras en la URL: https://docs.google.com/spreadsheets/d/<ESTE-ID>/edit
-export const SPREADSHEET_ID  = 'YOUR_SPREADSHEET_ID_HERE';
+// En local (localhost) se usa siempre la copia de pruebas, para no tocar datos reales.
+const PROD_SPREADSHEET_ID = 'YOUR_SPREADSHEET_ID_HERE';
+const TEST_SPREADSHEET_ID = 'YOUR_TEST_SPREADSHEET_ID_HERE'; // copia del Sheet para desarrollo
+export const IS_LOCAL       = ['localhost', '127.0.0.1'].includes(globalThis.location?.hostname);
+export const SPREADSHEET_ID = IS_LOCAL ? TEST_SPREADSHEET_ID : PROD_SPREADSHEET_ID;
 
 // OAuth Client ID de tipo "Web application" creado en Google Cloud Console.
 // Debe tener tu dominio (p.ej. https://tuapp.web.app) en "Authorized JavaScript origins".
