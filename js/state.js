@@ -4,14 +4,25 @@
 // Las vistas solo leen; solo sheets.js escribe.
 // =========================================================
 
+import { isInvestmentCode } from './utils/categoryCodes.js';
+
 /** @type {Transaction[]} */
 export let transactions = [];
 
 /** @type {Budget[]} */
 export let budgets = [];
 
-/** @type {Array} Todas las categorías de BUDGET_KEYS (activas y archivadas) */
+/** @type {Array} Todas las categorías de BUDGET_KEYS (activas, pausadas y archivadas) */
 export let allBudgetKeys = [];
+
+/**
+ * Formato del catálogo en el Sheet:
+ * 'legacy' = antes de la migración v2 (importes en BUDGET_KEYS) · 'v2' = importes en PLAN_LINES
+ */
+export let catalogFormat = 'legacy';
+
+/** @type {Array<{rowIndex:number, month:string, budgetKey:string, amount:number, note:string}>} */
+export let planLines = [];
 
 /** @type {Array} */
 export let budgetHistory = [];
@@ -37,7 +48,12 @@ export let currentMonth = _thisMonth();
 
 export function setTransactions(rows) { transactions = rows; }
 export function setBudgets(rows)      { budgets = rows; }
-export function setAllBudgetKeys(rows) { allBudgetKeys = rows; }
+export function setAllBudgetKeys(rows, format = 'legacy') {
+  allBudgetKeys = rows;
+  catalogFormat = format;
+  _rebuildBudgets();
+}
+export function setPlanLines(rows)    { planLines = rows; _rebuildBudgets(); }
 export function setSheetMeta(meta)    { sheetMeta = meta; }
 export function setBudgetHistory(rows) { budgetHistory = rows; }
 export function setCurrentMonth(m)    { currentMonth = m; }
@@ -152,6 +168,7 @@ function _titleCase(str) {
  * - Mes pasado sin histórico → fallback a state.budgets
  */
 export function getBudgetKeysForMonth(month) {
+  if (catalogFormat === 'v2') return _budgetsFromPlan(month);
   const now = new Date();
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   if (month >= thisMonth) return budgets;
@@ -196,10 +213,19 @@ export function getSpendByMonthAndKey(month, budgetKey) {
   return total;
 }
 
-/** Gasto total del mes */
+/** Gasto total del mes (sin inversiones) */
 export function getTotalSpend(month) {
+  const invKeys = getInvestmentKeys();
   return transactions
-    .filter(tx => tx.month === month)
+    .filter(tx => tx.month === month && !invKeys.has(tx.budgetKey))
+    .reduce((s, tx) => s + tx.amount, 0);
+}
+
+/** Total invertido en un mes, o en todos los meses que empiecen por `prefix` (p.ej. '2026') */
+export function getInvestedTotal(prefix) {
+  const invKeys = getInvestmentKeys();
+  return transactions
+    .filter(tx => tx.month.startsWith(prefix) && invKeys.has(tx.budgetKey))
     .reduce((s, tx) => s + tx.amount, 0);
 }
 
@@ -207,6 +233,7 @@ export function getTotalSpend(month) {
 export function getWeeklySpend() {
   const today = new Date();
   const monday = _startOfWeek(today);
+  const invKeys = getInvestmentKeys();
   const days = [];
 
   for (let i = 0; i < 7; i++) {
@@ -214,16 +241,21 @@ export function getWeeklySpend() {
     d.setDate(monday.getDate() + i);
     const iso = _toISODate(d);
     const total = transactions
-      .filter(tx => tx.date === iso)
+      .filter(tx => tx.date === iso && !invKeys.has(tx.budgetKey))
       .reduce((s, tx) => s + tx.amount, 0);
     days.push({ date: iso, label: _shortWeekDay(d), total });
   }
   return days;
 }
 
-/** Set de budgetKeys que son de tipo "Fijo" */
+/** Set de budgetKeys que son de tipo "Fijo" (incluye pausadas y archivadas) */
 export function getFixedKeys() {
-  return new Set(budgets.filter(b => b.type === 'Fijo').map(b => b.budgetKey));
+  return new Set(allBudgetKeys.filter(b => b.type === 'Fijo').map(b => b.budgetKey));
+}
+
+/** Set de budgetKeys de inversión (código INV): no cuentan como gasto */
+export function getInvestmentKeys() {
+  return new Set(allBudgetKeys.filter(b => isInvestmentCode(b.code)).map(b => b.budgetKey));
 }
 
 /** Top N comercios del mes por importe total (solo gastos variables) */
@@ -232,7 +264,7 @@ export function getTopMerchants(month, n = 5) {
   const map = new Map();
   for (const tx of transactions) {
     if (tx.month !== month) continue;
-    if (fixedKeys.has(tx.budgetKey)) continue;
+    if (fixedKeys.has(tx.budgetKey)) continue;   // incluye inversiones
     const key = tx.merchantNorm || 'Desconocido';
     map.set(key, (map.get(key) ?? 0) + tx.amount);
   }
@@ -245,6 +277,7 @@ export function getTopMerchants(month, n = 5) {
 /** Totales por mes para los últimos N meses, separados en fijo y variable */
 export function getMonthlyTotals(n = 6) {
   const fixedKeys = getFixedKeys();
+  const invKeys   = getInvestmentKeys();
   const months = [];
   const base = new Date();
   for (let i = n - 1; i >= 0; i--) {
@@ -254,7 +287,7 @@ export function getMonthlyTotals(n = 6) {
   return months.map(m => {
     let fixed = 0, variable = 0;
     for (const tx of transactions) {
-      if (tx.month !== m) continue;
+      if (tx.month !== m || invKeys.has(tx.budgetKey)) continue;
       if (fixedKeys.has(tx.budgetKey)) fixed += tx.amount;
       else variable += tx.amount;
     }
@@ -265,10 +298,12 @@ export function getMonthlyTotals(n = 6) {
 /** Gasto por categoría del mes, separando fijo y variable para charts */
 export function getSpendByCategoryGrouped(month) {
   const fixedKeys = getFixedKeys();
+  const invKeys   = getInvestmentKeys();
   const spendMap = getSpendByCategory(month);
   let fixedTotal = 0;
   const variableEntries = [];
   for (const [key, amount] of spendMap) {
+    if (invKeys.has(key)) continue;
     if (fixedKeys.has(key)) {
       fixedTotal += amount;
     } else {
@@ -296,6 +331,69 @@ export function getNextMonth(month) {
 export function getAvailableMonths() {
   const set = new Set(transactions.map(tx => tx.month));
   return [...set].sort((a, b) => b.localeCompare(a));
+}
+
+// =========================================================
+// Plan mensual (catálogo v2)
+// =========================================================
+
+/**
+ * Mes cuyo plan aplica a `month`: el propio si tiene líneas; si no, el último
+ * mes anterior con plan (el presupuesto "se arrastra" hasta que se cambie).
+ * @returns {string|null}
+ */
+export function getPlanSourceMonth(month) {
+  let best = null;
+  for (const l of planLines) {
+    if (l.month <= month && (best === null || l.month > best)) best = l.month;
+  }
+  return best;
+}
+
+/** Líneas del plan aplicable a `month` (incluye las especiales '@…') */
+export function getPlanLinesForMonth(month) {
+  const source = getPlanSourceMonth(month);
+  return source ? planLines.filter(l => l.month === source) : [];
+}
+
+/** Importe de una línea especial del plan (p.ej. '@IMPREVISTOS') para el mes */
+export function getPlanSpecial(month, key) {
+  return getPlanLinesForMonth(month).find(l => l.budgetKey === key)?.amount ?? 0;
+}
+
+/** Presupuestos del mes en el formato que esperan las vistas */
+function _budgetsFromPlan(month) {
+  const catalog = new Map(allBudgetKeys.map(c => [c.budgetKey, c]));
+  return getPlanLinesForMonth(month)
+    .filter(l => !l.budgetKey.startsWith('@'))
+    .map(l => _withAmount(catalog.get(l.budgetKey) ?? { budgetKey: l.budgetKey, type: 'Variable', code: '' }, l.amount));
+}
+
+function _withAmount(cat, amount) {
+  const fixed = cat.type === 'Fijo';
+  return {
+    budgetKey:     cat.budgetKey,
+    code:          cat.code,
+    type:          cat.type,
+    monthlyBudget: fixed ? 0 : amount,
+    fixedAmount:   fixed ? amount : 0,
+    dueDay:        cat.dueDay ?? 0,
+  };
+}
+
+/**
+ * state.budgets = categorías activas (las que se ofrecen al clasificar), con
+ * el importe del plan del mes en curso o 0 si no están presupuestadas.
+ */
+function _rebuildBudgets() {
+  if (catalogFormat !== 'v2') {
+    budgets = allBudgetKeys.filter(b => b.active).map(({ active, ...b }) => b);
+    return;
+  }
+  const amounts = new Map(getPlanLinesForMonth(_thisMonth()).map(l => [l.budgetKey, l.amount]));
+  budgets = allBudgetKeys
+    .filter(c => c.status === 'active')
+    .map(c => _withAmount(c, amounts.get(c.budgetKey) ?? 0));
 }
 
 // =========================================================

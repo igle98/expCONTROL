@@ -117,8 +117,9 @@ async function _processInput(text, onDone) {
   }
 
   // 2) Lookup en MERCHANT_MAP
+  // (solo si su categoría sigue activa: las pausadas/archivadas no se sugieren)
   const cached = state.merchantMap.get(evt.merchant_norm);
-  if (cached?.budgetKey) {
+  if (cached?.budgetKey && state.budgets.some(b => b.budgetKey === cached.budgetKey)) {
     await _confirmAndSave(evt, {
       budgetKey:    cached.budgetKey,
       confidence:   cached.confidenceLast || 1,

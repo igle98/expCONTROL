@@ -71,8 +71,9 @@ Cuando un gasto no cabe en el disponible de su categoría, se ofrece cubrir lo q
 6. **Dejar pendiente de cubrir** (no es una fuente: queda como déficit visible).
 
 Control de gasto electivo:
-- En categorías **E** (electivas: ocio, caprichos…) la reserva de imprevistos **no se ofrece como
-  primera opción**; primero se pide decidir qué otro gasto u objetivo se sacrifica.
+- En categorías **E** (electivas: ocio, caprichos…) la reserva de imprevistos (el "colchón")
+  **nunca puede ser la primera opción ni venir preseleccionada**, en ningún caso; primero se pide
+  decidir qué otro gasto u objetivo se sacrifica.
 - En categorías **N** (necesarias) imprevistos sí aparece entre las primeras opciones.
 - Las reasignaciones quedan siempre visibles: "Ocio: 50 € previstos, 80 € gastados, +30 € de Gasolina".
 
@@ -106,6 +107,17 @@ Primero en PRUEBAS; después, con copia de seguridad, en el Sheet real.
 | `MERCHANT_MAP` con los nombres nuevos | Para que la IA clasifique bien |
 | `IMPREVISTOS` y `CAPRICHOS` duplicada | Imprevistos archivada; Caprichos una sola hucha |
 | Pestañas nuevas | PLAN_MONTHS, PLAN_LINES, INCOME, HUCHAS, FUNDING |
+
+### Cómo se aplica
+
+Ajustes → **Migración a presupuesto v2** → *Revisar cambios* → corregir los gastos marcados ⚠️ →
+*Aplicar migración*. En `localhost` se aplica sobre PRUEBAS; en la web publicada pide escribir `MIGRAR`.
+
+Orden de escritura (todo idempotente; el catálogo, que es lo que activa el modelo v2, va al final):
+celdas sueltas → PLAN_LINES y FUNDING → borrados → BUDGET_KEYS → marca en MIGRATIONS.
+
+Hasta que exista el asistente (fase 2), el presupuesto de cada mes se edita en
+Presupuesto → **✏️ Editar presupuesto**. Un mes sin plan propio usa el último anterior.
 
 ## 8. Fases
 

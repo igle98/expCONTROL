@@ -1,8 +1,12 @@
-import { SPREADSHEET_ID, API_BASE, SHEETS, TX_COL, BK_COL, BH_COL, MM_COL, DEBT_COL, FUTURE_COL } from './config.js';
+import {
+  SPREADSHEET_ID, API_BASE, SHEETS, TX_COL, BK_COL, LEGACY_BK_COL, BH_COL, MM_COL,
+  DEBT_COL, FUTURE_COL, PL_COL,
+} from './config.js';
+import { typeFromCode, isValidCode } from './utils/categoryCodes.js';
 import { getToken } from './auth.js';
 import {
-  setTransactions, setBudgets, setAllBudgetKeys, setSheetMeta, setBudgetHistory,
-  setMerchantMap, upsertMerchantMap, setDebts, setFutureItems, sheetMeta,
+  setTransactions, setAllBudgetKeys, setSheetMeta, setBudgetHistory,
+  setMerchantMap, upsertMerchantMap, setDebts, setFutureItems, setPlanLines, sheetMeta,
 } from './state.js';
 
 // =========================================================
@@ -26,6 +30,7 @@ export async function loadAll() {
   await Promise.all([
     loadTransactions(),
     loadBudgetKeys(),
+    loadPlanLines(),
     loadBudgetHistory(),
     loadMerchantMap(),
     loadDebts(),
@@ -49,29 +54,118 @@ export async function loadTransactions() {
   setTransactions(txs);
 }
 
-/** Carga BUDGET_KEYS y actualiza state (budgets = solo los activos) */
+/**
+ * Carga BUDGET_KEYS y actualiza state. Detecta el formato por la cabecera:
+ * v2 (budget_key | code | …) o el anterior (budget_key | type | monthly_budget | …).
+ */
 export async function loadBudgetKeys() {
   const range = `${SHEETS.BUDGET_KEYS}!A:F`;
   const data  = await _apiFetch(
     `${API_BASE}/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}`
   );
-  const rows = data.values ?? [];
-  const all  = [];
+  const rows   = data.values ?? [];
+  const isV2   = isCatalogV2Header(rows[0]);
+  const parse  = isV2 ? _parseCatalogRow : _parseLegacyCatalogRow;
+  const all    = [];
+  for (let i = 1; i < rows.length; i++) {
+    const cat = parse(rows[i]);
+    if (cat) all.push(cat);
+  }
+  setAllBudgetKeys(all, isV2 ? 'v2' : 'legacy');
+}
+
+/** ¿La cabecera de BUDGET_KEYS es la del catálogo v2? */
+export function isCatalogV2Header(header) {
+  return String(header?.[BK_COL.CODE] ?? '').trim().toLowerCase() === 'code';
+}
+
+function _parseCatalogRow(row) {
+  if (!row?.[BK_COL.BUDGET_KEY]) return null;
+  const code   = String(row[BK_COL.CODE] ?? '').trim().toUpperCase();
+  const status = String(row[BK_COL.STATUS] ?? '').trim().toLowerCase() || 'active';
+  return {
+    budgetKey:   String(row[BK_COL.BUDGET_KEY]).trim(),
+    code,
+    type:        typeFromCode(code),
+    allowsHucha: String(row[BK_COL.ALLOWS_HUCHA] ?? '').trim().toUpperCase() === 'TRUE',
+    refAmount:   _parseNumber(row[BK_COL.REF_AMOUNT]),
+    dueDay:      _parseNumber(row[BK_COL.DUE_DAY]),
+    status,
+    active:      status === 'active',
+  };
+}
+
+function _parseLegacyCatalogRow(row) {
+  if (!row?.[LEGACY_BK_COL.BUDGET_KEY]) return null;
+  const type   = String(row[LEGACY_BK_COL.TYPE] ?? '').trim();   // "Fijo" o "Variable"
+  // Columna "active" (F) — checkbox = TRUE/FALSE
+  const active = String(row[LEGACY_BK_COL.ACTIVE] ?? '').toUpperCase() === 'TRUE';
+  return {
+    budgetKey:     String(row[LEGACY_BK_COL.BUDGET_KEY]).trim(),
+    code:          type === 'Fijo' ? 'NMC' : 'NMV',
+    type,
+    monthlyBudget: _parseNumber(row[LEGACY_BK_COL.MONTHLY_BUDGET]),
+    fixedAmount:   _parseNumber(row[LEGACY_BK_COL.FIXED_AMOUNT]),
+    dueDay:        _parseNumber(row[LEGACY_BK_COL.DUE_DAY]),
+    allowsHucha:   false,
+    status:        active ? 'active' : 'archived',
+    active,
+  };
+}
+
+// =========================================================
+// PLAN_LINES — lo presupuestado por categoría y mes
+// =========================================================
+
+const PLAN_HEADER = ['month', 'budget_key', 'amount', 'note'];
+
+/** Carga PLAN_LINES (vacío si la pestaña aún no existe) */
+export async function loadPlanLines() {
+  let rows;
+  try {
+    const data = await _apiFetch(
+      `${API_BASE}/${SPREADSHEET_ID}/values/${encodeURIComponent(`${SHEETS.PLAN_LINES}!A:D`)}`
+    );
+    rows = data.values ?? [];
+  } catch (err) {
+    if (err.status === 400 || err.status === 404) { setPlanLines([]); return; }
+    throw err;
+  }
+  const lines = [];
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
-    if (!row[BK_COL.BUDGET_KEY]) continue;
-    all.push({
-      budgetKey:      String(row[BK_COL.BUDGET_KEY]).trim(),
-      type:           String(row[BK_COL.TYPE] ?? '').trim(),         // "Fijo" o "Variable"
-      monthlyBudget:  _parseNumber(row[BK_COL.MONTHLY_BUDGET]),
-      fixedAmount:    _parseNumber(row[BK_COL.FIXED_AMOUNT]),
-      dueDay:         _parseNumber(row[BK_COL.DUE_DAY]),
-      // Columna "active" (F, índice 5) — checkbox = TRUE/FALSE
-      active:         String(row[BK_COL.ACTIVE] ?? '').toUpperCase() === 'TRUE',
+    const month = String(row[PL_COL.MONTH] ?? '').trim();
+    const budgetKey = String(row[PL_COL.BUDGET_KEY] ?? '').trim();
+    if (!/^\d{4}-\d{2}$/.test(month) || !budgetKey) continue;
+    lines.push({
+      rowIndex: i,
+      month,
+      budgetKey,
+      amount:   _parseNumber(row[PL_COL.AMOUNT]),
+      note:     String(row[PL_COL.NOTE] ?? '').trim(),
     });
   }
-  setAllBudgetKeys(all);
-  setBudgets(all.filter(b => b.active).map(({ active, ...b }) => b));
+  setPlanLines(lines);
+}
+
+/**
+ * Sustituye el plan de un mes por `lines`. Reescribe la pestaña entera
+ * (es pequeña), conservando los demás meses tal cual.
+ * @param {string} month 'YYYY-MM'
+ * @param {Array<{budgetKey:string, amount:number, note?:string}>} lines
+ */
+export async function savePlanForMonth(month, lines) {
+  await ensureSheet(SHEETS.PLAN_LINES, PLAN_HEADER);
+  const data = await _apiFetch(
+    `${API_BASE}/${SPREADSHEET_ID}/values/${encodeURIComponent(`${SHEETS.PLAN_LINES}!A:D`)}`
+  );
+  const kept = (data.values ?? []).slice(1)
+    .filter(r => String(r[PL_COL.MONTH] ?? '').trim() !== month && r[PL_COL.BUDGET_KEY]);
+  const added = lines.map(l => [month, l.budgetKey, Number(l.amount) || 0, l.note ?? '']);
+  const all = [...kept, ...added].sort((a, b) =>
+    String(a[0]).localeCompare(String(b[0])) || String(a[1]).localeCompare(String(b[1])));
+  await writeSheet(SHEETS.PLAN_LINES, [PLAN_HEADER, ...all]);
+  await loadPlanLines();
 }
 
 /** Carga BUDGET_HISTORY completo y actualiza state */
@@ -426,25 +520,25 @@ export async function deleteTransaction(rowIndex, sheetId) {
 // hay que propagar el cambio a mano para no dejar referencias huérfanas.
 
 /**
- * Añade una categoría nueva (activa) a BUDGET_KEYS.
- * @param {{budgetKey:string, type:string, monthlyBudget?:number,
- *          fixedAmount?:number, dueDay?:number}} cat
+ * Añade una categoría nueva a BUDGET_KEYS (catálogo v2).
+ * @param {{budgetKey:string, code:string, allowsHucha?:boolean,
+ *          refAmount?:number, dueDay?:number, status?:string}} cat
  */
 export async function appendBudgetKey(cat) {
   const appendRange = `${SHEETS.BUDGET_KEYS}!A:F`;
   await _apiFetch(
     `${API_BASE}/${SPREADSHEET_ID}/values/${encodeURIComponent(appendRange)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
-    { method: 'POST', body: JSON.stringify({ values: [_budgetKeyRow({ ...cat, active: true })] }) }
+    { method: 'POST', body: JSON.stringify({ values: [budgetKeyRow({ status: 'active', ...cat })] }) }
   );
 }
 
 /**
- * Actualiza una categoría. Si cambia el nombre o el tipo, lo propaga a
- * TRANSACTIONS y MERCHANT_MAP (budget_key + type). El nombre también se
- * propaga a BUDGET_HISTORY para no partir el histórico en dos.
- * @param {{budgetKey:string, type:string}} oldCat
- * @param {{budgetKey:string, type:string, monthlyBudget?:number,
- *          fixedAmount?:number, dueDay?:number, active:boolean}} cat
+ * Actualiza una categoría. Si cambia el nombre o el tipo (derivado del código),
+ * lo propaga a TRANSACTIONS y MERCHANT_MAP (budget_key + type). El nombre también
+ * se propaga a BUDGET_HISTORY y PLAN_LINES para no partir el histórico en dos.
+ * @param {{budgetKey:string, code:string}} oldCat
+ * @param {{budgetKey:string, code:string, allowsHucha:boolean,
+ *          refAmount?:number, dueDay?:number, status:string}} cat
  * @returns {Promise<{transactions:number, merchants:number}>}
  */
 export async function updateBudgetKey(oldCat, cat) {
@@ -454,12 +548,13 @@ export async function updateBudgetKey(oldCat, cat) {
   }
 
   const renamed = cat.budgetKey !== oldCat.budgetKey;
+  const type    = typeFromCode(cat.code);
   const data = refs.budgetKeyRows.map(r => ({
     range:  `${SHEETS.BUDGET_KEYS}!A${r}:F${r}`,
-    values: [_budgetKeyRow(cat)],
+    values: [budgetKeyRow(cat)],
   }));
-  if (renamed || cat.type !== oldCat.type) {
-    data.push(..._retargetData(refs, cat.budgetKey, cat.type, { history: renamed }));
+  if (renamed || type !== typeFromCode(oldCat.code)) {
+    data.push(..._retargetData(refs, cat.budgetKey, type, { history: renamed }));
   }
   await _batchValuesUpdate(data);
 
@@ -485,7 +580,7 @@ export async function deleteBudgetKey(budgetKey, target) {
   }
 
   if (target) {
-    const data = _retargetData(refs, target.budgetKey, target.type, { history: false });
+    const data = _retargetData(refs, target.budgetKey, typeFromCode(target.code), { history: false });
     if (data.length > 0) await _batchValuesUpdate(data);
   }
 
@@ -512,10 +607,11 @@ export async function deleteBudgetKey(budgetKey, target) {
   return { transactions: refs.txRows.length, merchants: refs.mmRows.length };
 }
 
-function _budgetKeyRow(cat) {
-  const num = v => (v === undefined || v === null || v === '' || isNaN(v)) ? '' : Number(v);
-  // budget_key | type | monthly_budget | fixed_amount | due_day | active
-  return [cat.budgetKey, cat.type, num(cat.monthlyBudget), num(cat.fixedAmount), num(cat.dueDay), Boolean(cat.active)];
+/** Fila de BUDGET_KEYS (v2): budget_key | code | allows_hucha | ref_amount | due_day | status */
+export function budgetKeyRow(cat) {
+  const num = v => (v === undefined || v === null || v === '' || isNaN(v) || Number(v) === 0) ? '' : Number(v);
+  if (!isValidCode(cat.code)) throw new Error(`Código de categoría inválido: ${cat.code}`);
+  return [cat.budgetKey, cat.code, Boolean(cat.allowsHucha), num(cat.refAmount), num(cat.dueDay), cat.status || 'active'];
 }
 
 /**
@@ -528,6 +624,7 @@ async function _findBudgetKeyRefs(budgetKey) {
     ['txRows',        SHEETS.TRANSACTIONS,   'K'],
     ['mmRows',        SHEETS.MERCHANT_MAP,   'B'],
     ['historyRows',   SHEETS.BUDGET_HISTORY, 'B'],
+    ['planRows',      SHEETS.PLAN_LINES,     'B'],
   ].filter(([, sheet]) => sheetMeta[sheet] !== undefined);   // pestañas opcionales
 
   const qs = targets
@@ -535,7 +632,7 @@ async function _findBudgetKeyRefs(budgetKey) {
     .join('&');
   const data = await _apiFetch(`${API_BASE}/${SPREADSHEET_ID}/values:batchGet?${qs}`);
 
-  const refs = { budgetKeyRows: [], txRows: [], mmRows: [], historyRows: [] };
+  const refs = { budgetKeyRows: [], txRows: [], mmRows: [], historyRows: [], planRows: [] };
   targets.forEach(([name], idx) => {
     const values = data.valueRanges?.[idx]?.values ?? [];
     for (let i = 1; i < values.length; i++) {   // fila 0 = cabecera
@@ -558,6 +655,9 @@ function _retargetData(refs, budgetKey, type, { history }) {
     for (const r of refs.historyRows) {
       data.push({ range: `${SHEETS.BUDGET_HISTORY}!B${r}`, values: [[budgetKey]] });
     }
+    for (const r of refs.planRows) {
+      data.push({ range: `${SHEETS.PLAN_LINES}!B${r}`, values: [[budgetKey]] });
+    }
   }
   return data;
 }
@@ -566,6 +666,78 @@ async function _batchValuesUpdate(data) {
   await _apiFetch(
     `${API_BASE}/${SPREADSHEET_ID}/values:batchUpdate`,
     { method: 'POST', body: JSON.stringify({ valueInputOption: 'RAW', data }) }
+  );
+}
+
+// =========================================================
+// Helpers genéricos de escritura (usados también por la migración)
+// =========================================================
+
+/** Lee varios rangos de una vez. Devuelve un array de filas por rango. */
+export async function readRanges(ranges) {
+  const qs = ranges.map(r => `ranges=${encodeURIComponent(r)}`).join('&');
+  const data = await _apiFetch(`${API_BASE}/${SPREADSHEET_ID}/values:batchGet?${qs}`);
+  return ranges.map((_, i) => data.valueRanges?.[i]?.values ?? []);
+}
+
+/** Escribe muchas celdas (valores RAW) en una sola llamada, en lotes de 500 rangos */
+export async function batchValuesUpdate(data) {
+  for (let i = 0; i < data.length; i += 500) {
+    await _batchValuesUpdate(data.slice(i, i + 500));
+  }
+}
+
+/** Crea la pestaña con su cabecera si no existe */
+export async function ensureSheet(title, header) {
+  if (sheetMeta[title] !== undefined) return;
+  await loadSheetMeta();
+  if (sheetMeta[title] !== undefined) return;
+  await _apiFetch(
+    `${API_BASE}/${SPREADSHEET_ID}:batchUpdate`,
+    { method: 'POST', body: JSON.stringify({ requests: [{ addSheet: { properties: { title } } }] }) }
+  );
+  await writeSheet(title, [header]);
+  await loadSheetMeta();
+}
+
+/** Sustituye todo el contenido de una pestaña por `rows` (cabecera incluida) */
+export async function writeSheet(title, rows) {
+  await _apiFetch(
+    `${API_BASE}/${SPREADSHEET_ID}/values/${encodeURIComponent(`${title}!A:Z`)}:clear`,
+    { method: 'POST', body: '{}' }
+  );
+  if (rows.length === 0) return;
+  await _apiFetch(
+    `${API_BASE}/${SPREADSHEET_ID}/values/${encodeURIComponent(`${title}!A1`)}?valueInputOption=RAW`,
+    { method: 'PUT', body: JSON.stringify({ values: rows }) }
+  );
+}
+
+/** Añade filas al final de una pestaña */
+export async function appendRows(title, rows) {
+  if (rows.length === 0) return;
+  await _apiFetch(
+    `${API_BASE}/${SPREADSHEET_ID}/values/${encodeURIComponent(`${title}!A:Z`)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    { method: 'POST', body: JSON.stringify({ values: rows }) }
+  );
+}
+
+/** Borra filas (números 1-based de A1) de una pestaña, de abajo arriba */
+export async function deleteSheetRows(title, rowNumbers) {
+  if (rowNumbers.length === 0) return;
+  const sheetId = sheetMeta[title];
+  if (sheetId === undefined) throw new Error(`No existe la pestaña ${title}`);
+  const sorted = [...new Set(rowNumbers)].sort((a, b) => b - a);
+  await _apiFetch(
+    `${API_BASE}/${SPREADSHEET_ID}:batchUpdate`,
+    {
+      method: 'POST',
+      body:   JSON.stringify({
+        requests: sorted.map(row => ({
+          deleteDimension: { range: { sheetId, dimension: 'ROWS', startIndex: row - 1, endIndex: row } },
+        })),
+      }),
+    }
   );
 }
 
@@ -949,7 +1121,7 @@ function _parseTransactionRow(row, absoluteRowIndex) {
     amount:      _parseNumber(amountRaw),
     merchantNorm: String(row[TX_COL.MERCHANT_NORM] ?? '').trim(),
     budgetKey:   String(row[TX_COL.BUDGET_KEY]    ?? '').trim(),
-    month:       String(row[TX_COL.MONTH]         ?? '').trim(),
+    month:       _parseMonth(row[TX_COL.MONTH], dateRaw),
   };
 }
 
@@ -979,6 +1151,15 @@ function _parseDate(value) {
     return d.toISOString().slice(0, 10);
   }
   return str;
+}
+
+/** 'YYYY-MM'. Si la celda de mes no tiene ese formato (p.ej. guardada como fecha), se deriva de la fecha. */
+function _parseMonth(monthRaw, dateRaw) {
+  const str = String(monthRaw ?? '').trim();
+  if (/^\d{4}-\d{2}$/.test(str)) return str;
+  const fromMonth = _parseDate(str);
+  if (/^\d{4}-\d{2}/.test(fromMonth)) return fromMonth.slice(0, 7);
+  return _parseDate(dateRaw).slice(0, 7);
 }
 
 function _parseNumber(value) {

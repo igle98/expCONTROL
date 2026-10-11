@@ -34,6 +34,9 @@ export const SHEETS = {
   BUDGET_HISTORY: 'BUDGET_HISTORY',
   DEBTS:          'DEBTS',
   FUTURE:         'FUTURE',
+  PLAN_LINES:     'PLAN_LINES',
+  FUNDING:        'FUNDING',
+  MIGRATIONS:     'MIGRATIONS',
 };
 
 // Índices de columna en TRANSACTIONS (0-based)
@@ -56,9 +59,22 @@ export const TX_COL = {
   TELEGRAM_MSG_ID:   14,
 };
 
-// Índices de columna en BUDGET_KEYS (0-based)
-// budget_key | type | monthly_budget | fixed_amount | due_day | active
+// Índices de columna en BUDGET_KEYS (0-based) — catálogo de categorías (presupuesto v2)
+// budget_key | code | allows_hucha | ref_amount | due_day | status
+// code: NMC…EDV o INV (ver js/utils/categoryCodes.js). status: active | paused | archived.
+// Lo presupuestado cada mes NO vive aquí, sino en PLAN_LINES.
 export const BK_COL = {
+  BUDGET_KEY:   0,
+  CODE:         1,
+  ALLOWS_HUCHA: 2,
+  REF_AMOUNT:   3,
+  DUE_DAY:      4,
+  STATUS:       5,
+};
+
+// Formato anterior de BUDGET_KEYS (antes de la migración v2), solo para lectura
+// budget_key | type | monthly_budget | fixed_amount | due_day | active
+export const LEGACY_BK_COL = {
   BUDGET_KEY:     0,
   TYPE:           1,
   MONTHLY_BUDGET: 2,
@@ -117,6 +133,29 @@ export const FUTURE_COL = {
   STATUS:       5,
   NOTES:        6,
   DATE_UPDATED: 7,
+};
+
+// Índices de columna en PLAN_LINES (0-based) — lo presupuestado por categoría y mes
+// month | budget_key | amount | note
+// Claves que empiezan por '@' son líneas especiales (p.ej. '@IMPREVISTOS' = reserva del mes).
+export const PL_COL = {
+  MONTH:      0,
+  BUDGET_KEY: 1,
+  AMOUNT:     2,
+  NOTE:       3,
+};
+
+// Índices de columna en FUNDING (0-based) — de dónde sale el dinero de cada gasto
+// date | month | tx_id | source | amount | kind | note
+// source: 'IMPREVISTOS', 'HUCHA:<nombre>', 'CAT:<budget_key>'…  kind: cobertura | aportacion | retirada | ajuste
+export const FUND_COL = {
+  DATE:   0,
+  MONTH:  1,
+  TX_ID:  2,
+  SOURCE: 3,
+  AMOUNT: 4,
+  KIND:   5,
+  NOTE:   6,
 };
 
 export const API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';

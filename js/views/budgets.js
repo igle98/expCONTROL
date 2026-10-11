@@ -1,8 +1,10 @@
 import * as state from '../state.js';
 import { getCategoryColor } from '../utils/colors.js';
-import { formatCurrency, calcPercent } from '../utils/formatters.js';
+import { formatCurrency, calcPercent, formatMonth } from '../utils/formatters.js';
 import { el, show, hide } from '../utils/dom.js';
 import { saveBudgetSnapshot } from '../sheets.js';
+import { isInvestmentCode } from '../utils/categoryCodes.js';
+import { openPlanEditor } from './planEditor.js';
 
 let _lastSnapshotMonth = null;
 
@@ -19,9 +21,13 @@ export function render() {
   const spendMap = state.getSpendByCategory(month);
   const budgets  = state.getBudgetKeysForMonth(month);
 
+  const isV2 = state.catalogFormat === 'v2';
+  _renderToolbar(month, isV2);
+
+  // Formato anterior: foto mensual en BUDGET_HISTORY. En v2 el plan de cada mes ya vive en PLAN_LINES.
   const _now = new Date();
   const _thisMonth = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}`;
-  if (month === _thisMonth && budgets.length > 0 && _lastSnapshotMonth !== month) {
+  if (!isV2 && month === _thisMonth && budgets.length > 0 && _lastSnapshotMonth !== month) {
     _lastSnapshotMonth = month;
     saveBudgetSnapshot(month, budgets, spendMap).catch(err => {
       console.warn('[BudgetHistory] No se pudo guardar snapshot:', err.message);
@@ -36,9 +42,10 @@ export function render() {
   }
   hide(emptyEl);
 
-  // Separar por tipo
-  const variables = budgets.filter(b => b.type !== 'Fijo');
-  const fijos     = budgets.filter(b => b.type === 'Fijo');
+  // Separar por tipo (las inversiones van aparte: no son gasto)
+  const investments = budgets.filter(b => isInvestmentCode(b.code));
+  const variables   = budgets.filter(b => b.type !== 'Fijo');
+  const fijos       = budgets.filter(b => b.type === 'Fijo' && !isInvestmentCode(b.code));
 
   const varSpent    = variables.reduce((s, b) => s + (spendMap.get(b.budgetKey) ?? 0), 0);
   const varBudget   = variables.reduce((s, b) => s + b.monthlyBudget, 0);
@@ -77,9 +84,56 @@ export function render() {
     el('div', { class: 'budget-cards-grid' },
       ...fixSorted.map(b => _fixedCard(b, spendMap.get(b.budgetKey) ?? 0)),
     ),
+    investments.length > 0 ? _summaryCard('Inversión (no es gasto)',
+      investments.reduce((s, b) => s + (spendMap.get(b.budgetKey) ?? 0), 0),
+      investments.reduce((s, b) => s + b.fixedAmount, 0), false) : null,
+    investments.length > 0 ? el('div', { class: 'budget-cards-grid' },
+      ...investments.map(b => _fixedCard(b, spendMap.get(b.budgetKey) ?? 0)),
+    ) : null,
+    isV2 ? _outOfBudgetCard(budgets, spendMap) : null,
   );
 
   container.replaceChildren(varColumn, fixColumn);
+}
+
+// =========================================================
+// Barra superior (v2): editar el presupuesto del mes
+// =========================================================
+
+function _renderToolbar(month, isV2) {
+  const bar = document.getElementById('budgets-toolbar');
+  if (!bar) return;
+  if (!isV2) { bar.replaceChildren(); return; }
+
+  const source = state.getPlanSourceMonth(month);
+  const reserve = state.getPlanSpecial(month, '@IMPREVISTOS');
+  bar.replaceChildren(
+    el('div', { class: 'budgets-toolbar-info muted small' },
+      source === month ? `Presupuesto de ${formatMonth(month)}`
+        : source ? `Sin presupuesto propio: se usa el de ${formatMonth(source)}`
+        : 'Este mes no tiene presupuesto',
+      reserve ? ` · imprevistos ${formatCurrency(reserve, true)}` : '',
+    ),
+    el('button', {
+      class: 'btn btn-secondary btn-sm',
+      onclick: () => openPlanEditor(month, () => render()),
+    }, '✏️ Editar presupuesto'),
+  );
+}
+
+/** Gasto del mes en categorías que no están en el presupuesto */
+function _outOfBudgetCard(budgets, spendMap) {
+  const planned = new Set(budgets.map(b => b.budgetKey));
+  const invKeys = state.getInvestmentKeys();
+  const extra = [...spendMap.entries()]
+    .filter(([key, amount]) => !planned.has(key) && !invKeys.has(key) && amount > 0)
+    .sort((a, b) => b[1] - a[1]);
+  if (extra.length === 0) return null;
+  return el('div', { class: 'budget-summary-card budget-out-of-plan' },
+    el('div', { class: 'budget-total-label' }, 'Fuera de presupuesto'),
+    ...extra.map(([key, amount]) => el('div', { class: 'budget-out-of-plan-row' },
+      el('span', {}, key), el('span', {}, formatCurrency(amount, true)))),
+  );
 }
 
 // =========================================================

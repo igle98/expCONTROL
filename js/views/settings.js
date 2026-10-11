@@ -5,6 +5,10 @@
 import { el, showToast } from '../utils/dom.js';
 import { getOpenAIKey, setOpenAIKey } from '../expense/classifier.js';
 import * as viewCategories from './categories.js';
+import * as viewMigration from './migration.js';
+
+// Tras una migración u otra recarga completa de datos
+document.addEventListener('data-reloaded', () => render());
 
 const ROOT_ID = 'view-settings';
 
@@ -64,7 +68,9 @@ export function render() {
 
   root.replaceChildren(
     el('div', { class: 'settings-card' }, form),
+    el('div', { id: 'migration-section' }),
     el('div', { id: 'categories-section' }),
   );
+  viewMigration.render();
   viewCategories.render();
 }

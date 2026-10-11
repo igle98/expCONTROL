@@ -10,13 +10,9 @@ import { el, openModal, closeModal, showToast, setLoading } from '../utils/dom.j
 import { formatCurrency } from '../utils/formatters.js';
 import { getCategoryColor } from '../utils/colors.js';
 import { SPECIAL_KEYWORDS } from './addExpense.js';
+import { CODES, STATUSES, isInvestmentCode } from '../utils/categoryCodes.js';
 
 const ROOT_ID = 'categories-section';
-
-const TYPES = [
-  { key: 'Variable', label: 'Variable (presupuesto mensual)' },
-  { key: 'Fijo',     label: 'Fijo (recibo con importe y día)' },
-];
 
 // =========================================================
 // Render
@@ -26,10 +22,21 @@ export function render() {
   const root = document.getElementById(ROOT_ID);
   if (!root) return;
 
+  if (state.catalogFormat !== 'v2') {
+    root.replaceChildren(
+      el('div', { class: 'settings-card' },
+        el('span', { class: 'settings-label' }, 'Categorías'),
+        el('p', { class: 'muted small' },
+          'La gestión de categorías estará disponible cuando apliques la migración a presupuesto v2.'),
+      ),
+    );
+    return;
+  }
+
   const byName   = (a, b) => a.budgetKey.localeCompare(b.budgetKey);
-  const active   = state.allBudgetKeys.filter(c => c.active).sort(byName);
-  const archived = state.allBudgetKeys.filter(c => !c.active).sort(byName);
+  const active   = state.allBudgetKeys.filter(c => c.status === 'active').sort(byName);
   const txCounts = _countBy(state.transactions);
+  const withStatus = s => state.allBudgetKeys.filter(c => c.status === s).sort(byName);
 
   const group = (title, cats) => cats.length === 0 ? null :
     el('div', { class: 'cat-group' },
@@ -45,21 +52,26 @@ export function render() {
       ),
       el('p', { class: 'muted small' },
         'Al renombrar una categoría se actualizan también sus gastos y los comercios que ya aprendió la IA.'),
-      group('Variables', active.filter(c => c.type !== 'Fijo')),
-      group('Fijos',     active.filter(c => c.type === 'Fijo')),
-      group('Archivadas', archived),
+      group('Necesarias', active.filter(c => c.code[0] === 'N')),
+      group('Electivas',  active.filter(c => c.code[0] === 'E')),
+      group('Inversión',  active.filter(c => isInvestmentCode(c.code))),
+      group('Pausadas',   withStatus('paused')),
+      group('Archivadas', withStatus('archived')),
     ),
   );
 }
 
 function _row(c, txCount) {
-  const amount = c.type === 'Fijo'
-    ? `${formatCurrency(c.fixedAmount, true)}${c.dueDay ? ` · día ${c.dueDay}` : ''}`
-    : `${formatCurrency(c.monthlyBudget, true)}/mes`;
+  const amount = [
+    c.code,
+    c.refAmount ? formatCurrency(c.refAmount, true) : null,
+    c.dueDay ? `día ${c.dueDay}` : null,
+    c.allowsHucha ? 'hucha' : null,
+  ].filter(Boolean).join(' · ');
 
   return el('button', {
     type: 'button',
-    class: `cat-row${c.active ? '' : ' cat-row-archived'}`,
+    class: `cat-row${c.status === 'active' ? '' : ' cat-row-archived'}`,
     onclick: () => _openEditModal(c),
   },
     el('span', { class: 'cat-dot', style: { background: getCategoryColor(c.budgetKey) } }),
@@ -75,35 +87,13 @@ function _row(c, txCount) {
 // =========================================================
 
 function _formBody(c = null) {
-  const type = c?.type === 'Fijo' ? 'Fijo' : 'Variable';
   const numValue = v => (c && v) ? String(v) : '';
+  const code = c?.code ?? 'EMV';
 
-  const variableFields = el('div', { class: 'cat-form-fields', 'data-for': 'Variable' },
-    _inputGroup('cat-monthly', 'Presupuesto mensual (€)', el('input', {
-      id: 'cat-monthly', class: 'modal-input', type: 'number', step: '0.01', min: '0',
-      placeholder: '0.00', value: numValue(c?.monthlyBudget),
-    })),
-  );
-  const fixedFields = el('div', { class: 'cat-form-fields cat-form-row', 'data-for': 'Fijo' },
-    _inputGroup('cat-fixed', 'Importe fijo (€)', el('input', {
-      id: 'cat-fixed', class: 'modal-input', type: 'number', step: '0.01', min: '0',
-      placeholder: '0.00', value: numValue(c?.fixedAmount),
-    })),
-    _inputGroup('cat-due', 'Día de pago', el('input', {
-      id: 'cat-due', class: 'modal-input', type: 'number', min: '1', max: '31',
-      placeholder: '—', value: numValue(c?.dueDay),
-    })),
-  );
-  const syncTypeFields = (t) => {
-    variableFields.classList.toggle('hidden', t !== 'Variable');
-    fixedFields.classList.toggle('hidden', t !== 'Fijo');
-  };
-  syncTypeFields(type);
-
-  const typeSelect = el('select', {
-    id: 'cat-type', class: 'modal-select',
-    onchange: (e) => syncTypeFields(e.target.value),
-  }, ...TYPES.map(t => el('option', { value: t.key, selected: t.key === type }, t.label)));
+  const codeSelect = el('select', { id: 'cat-code', class: 'modal-select' },
+    ...CODES.map(o => el('option', { value: o.code, selected: o.code === code }, `${o.code} · ${o.label}`)));
+  const statusSelect = el('select', { id: 'cat-status', class: 'modal-select' },
+    ...STATUSES.map(o => el('option', { value: o.key, selected: o.key === (c?.status ?? 'active') }, o.label)));
 
   return el('div', { class: 'cat-form' },
     _inputGroup('cat-name', 'Nombre', el('input', {
@@ -112,13 +102,24 @@ function _formBody(c = null) {
       value: c?.budgetKey ?? '',
     })),
     c ? _renameHint(c) : null,
-    _inputGroup('cat-type', 'Tipo', typeSelect),
-    variableFields,
-    fixedFields,
-    c ? el('label', { class: 'cat-active' },
-      el('input', { id: 'cat-active', type: 'checkbox', checked: c.active }),
-      el('span', {}, 'Activa. Desmárcala para archivarla: deja de salir en el presupuesto y en la IA, pero conserva sus gastos.'),
-    ) : null,
+    _inputGroup('cat-code', 'Clasificación', codeSelect),
+    el('div', { class: 'cat-form-fields cat-form-row' },
+      _inputGroup('cat-ref', 'Importe habitual (€)', el('input', {
+        id: 'cat-ref', class: 'modal-input', type: 'number', step: '0.01', min: '0',
+        placeholder: 'opcional', value: numValue(c?.refAmount),
+      })),
+      _inputGroup('cat-due', 'Día de pago', el('input', {
+        id: 'cat-due', class: 'modal-input', type: 'number', min: '1', max: '31',
+        placeholder: '—', value: numValue(c?.dueDay),
+      })),
+    ),
+    el('label', { class: 'cat-active' },
+      el('input', { id: 'cat-hucha', type: 'checkbox', checked: Boolean(c?.allowsHucha) }),
+      el('span', {}, 'Permite pagar con hucha'),
+    ),
+    c ? _inputGroup('cat-status', 'Estado', statusSelect) : null,
+    c ? el('p', { class: 'muted small' },
+      'Pausada: deja de sugerirse hasta que la reactives. Archivada: no se sugiere nunca, pero sus gastos se conservan en las estadísticas.') : null,
   );
 }
 
@@ -137,11 +138,10 @@ function _renameHint(c) {
 /** Lee y valida el formulario. Devuelve null (con toast) si hay error. */
 function _readForm(current = null) {
   const budgetKey = _normalizeName(document.getElementById('cat-name')?.value);
-  const type      = document.getElementById('cat-type')?.value === 'Fijo' ? 'Fijo' : 'Variable';
-  const monthly   = _readNumber('cat-monthly');
-  const fixed     = _readNumber('cat-fixed');
+  const code      = document.getElementById('cat-code')?.value ?? 'EMV';
+  const refAmount = _readNumber('cat-ref');
   const dueDay    = _readNumber('cat-due');
-  const activeBox = document.getElementById('cat-active');
+  const status    = document.getElementById('cat-status')?.value ?? 'active';
 
   if (!budgetKey) { showToast('Indica un nombre', 'error'); return null; }
   if (!/^[\p{L}0-9_]+$/u.test(budgetKey)) {
@@ -154,7 +154,7 @@ function _readForm(current = null) {
     showToast(`Ya existe una categoría ${budgetKey}. Para unirlas, elimina una y mueve sus gastos a la otra.`, 'error', 5000);
     return null;
   }
-  if ([monthly, fixed].some(v => Number.isNaN(v) || v < 0)) {
+  if (Number.isNaN(refAmount) || refAmount < 0) {
     showToast('Importe inválido', 'error');
     return null;
   }
@@ -165,11 +165,11 @@ function _readForm(current = null) {
 
   return {
     budgetKey,
-    type,
-    monthlyBudget: monthly,
-    fixedAmount:   fixed,
+    code,
+    allowsHucha: Boolean(document.getElementById('cat-hucha')?.checked),
+    refAmount,
     dueDay,
-    active:        activeBox ? activeBox.checked : true,
+    status,
   };
 }
 
@@ -255,7 +255,7 @@ function _openDeleteModal(c) {
     ),
     needsTarget ? _inputGroup('cat-delete-target', 'Mover sus gastos y comercios a', targetSelect) : null,
     el('p', { class: 'muted small' },
-      'El histórico de presupuesto de meses pasados se conserva. Si solo quieres dejar de usarla, mejor archívala (desmarca "Activa").'),
+      'El histórico de presupuesto de meses pasados se conserva. Si solo quieres dejar de usarla, mejor archívala o páusala (campo "Estado").'),
     _keywordsFor(c.budgetKey).length
       ? el('p', { class: 'muted small' },
           `La palabra clave ${_keywordsFor(c.budgetKey).map(k => `«${k}»`).join(', ')} dejará de funcionar.`)
@@ -299,6 +299,7 @@ async function _run(loadingText, action) {
       sheets.loadTransactions(),
       sheets.loadMerchantMap(),
       sheets.loadBudgetHistory(),
+      sheets.loadPlanLines(),
     ]);
     render();
     showToast(message, 'success', 4000);
