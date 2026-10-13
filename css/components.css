@@ -1416,6 +1416,10 @@ option {
 }
 .plan-editor-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-editor-amount { padding: var(--space-1) var(--space-2); text-align: right; }
+/* Sin flechas de incremento en los importes */
+.plan-editor-amount { -moz-appearance: textfield; appearance: textfield; }
+.plan-editor-amount::-webkit-outer-spin-button,
+.plan-editor-amount::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 
 .migration-card { display: flex; flex-direction: column; gap: var(--space-3); }
 .migration-target { font-size: var(--text-sm); font-weight: var(--font-semibold); }
@@ -1457,8 +1461,11 @@ option {
 .wizard-total-amount { font-weight: var(--font-bold); font-variant-numeric: tabular-nums; }
 .wizard-total.is-negative .wizard-total-amount { color: var(--danger); }
 .wizard-total.is-positive .wizard-total-amount { color: var(--success); }
-.wizard-steps { display: flex; gap: var(--space-2); overflow-x: auto; padding-bottom: 2px; }
-.wizard-steps .chip { white-space: nowrap; flex-shrink: 0; }
+.wizard-progress { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.wizard-dots { display: flex; gap: 6px; }
+.wizard-dot { width: 8px; height: 8px; border-radius: var(--radius-full); background: var(--bg-input); }
+.wizard-dot.is-done { background: var(--accent-dim); }
+.wizard-dot.is-current { background: var(--accent); }
 .wizard-step { display: flex; flex-direction: column; gap: var(--space-3); }
 .wizard-step-title { font-weight: var(--font-semibold); }
 .wizard-add-row { display: grid; grid-template-columns: 1fr auto; gap: var(--space-2); }

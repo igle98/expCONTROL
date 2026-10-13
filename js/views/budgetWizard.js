@@ -16,7 +16,7 @@ export const SAVINGS_KEY = '@AHORRO';
 
 const STEPS = [
   { id: 'income',  title: 'Ingresos' },
-  { id: 'needs',   title: 'Necesarios y mensuales' },
+  { id: 'needs',   title: 'Necesarios y cuotas' },
   { id: 'inv',     title: 'Inversiones' },
   { id: 'savings', title: 'Ahorro y huchas' },
   { id: 'rest',    title: 'Resto de electivos' },
@@ -119,13 +119,15 @@ function _total(label, amount, cls = '') {
   );
 }
 
+/** Progreso del asistente (se avanza con Siguiente / Atrás) */
 function _renderStepNav() {
-  return el('div', { class: 'wizard-steps' },
-    ...STEPS.map((s, i) => el('button', {
-      type: 'button',
-      class: `chip ${i === _w.step ? 'chip-active' : ''}`,
-      onclick: () => _go(i),
-    }, `${i + 1}. ${s.title}`)),
+  return el('div', { class: 'wizard-progress' },
+    el('span', { class: 'muted small' }, `Paso ${_w.step + 1} de ${STEPS.length}`),
+    el('div', { class: 'wizard-dots' },
+      ...STEPS.map((_, i) => el('span', {
+        class: `wizard-dot ${i === _w.step ? 'is-current' : i < _w.step ? 'is-done' : ''}`,
+      })),
+    ),
   );
 }
 
@@ -137,8 +139,11 @@ function _renderStep() {
                       [['Inversión', c => isInvestmentCode(c.code)]]);
     case 'savings': return _stepSavings();
     case 'rest':    return _stepCategories('Resto de electivos',
-                      'Compras y planes ocasionales. Lo que asignes aquí sale de lo que te quede.',
-                      [['Electivo discontinuo', c => c.code.startsWith('ED')]]);
+                      'Ocio, planes y compras ocasionales. Lo que asignes aquí sale de lo que te quede.',
+                      [
+                        ['Electivo mensual variable', c => c.code === 'EMV'],
+                        ['Electivo discontinuo',      c => c.code.startsWith('ED')],
+                      ]);
   }
   return null;
 }
@@ -195,12 +200,12 @@ async function _addIncomeKey(raw) {
 
 function _stepNeeds() {
   return el('div', { class: 'wizard-step' },
-    _stepCategories('Necesarios y mensuales',
-      'Primero lo imprescindible y las cuotas mensuales que decides mantener.',
+    _stepCategories('Necesarios y cuotas',
+      'Primero lo imprescindible y las cuotas mensuales fijas que decides mantener.',
       [
         ['Necesario mensual',     c => c.code.startsWith('NM')],
         ['Necesario discontinuo', c => c.code.startsWith('ND')],
-        ['Electivo mensual',      c => c.code.startsWith('EM')],
+        ['Cuotas electivas',      c => c.code === 'EMC'],
       ]),
     el('div', { class: 'plan-editor-group' },
       el('div', { class: 'cat-group-title' }, 'Colchón'),
@@ -262,7 +267,7 @@ function _lineRow(key, label, hint) {
     onchange: () => { line.included = checkbox.checked; _w.refreshTotals(); },
   });
   const input = el('input', {
-    class: 'modal-input plan-editor-amount', type: 'number', step: '0.01', min: '0',
+    class: 'modal-input plan-editor-amount', type: 'number', inputmode: 'decimal', step: '0.01', min: '0',
     value: line.amount ? String(line.amount) : '', placeholder: '0',
     oninput: () => {
       line.amount = input.value === '' ? 0 : Number(input.value);
@@ -283,7 +288,7 @@ function _lineRow(key, label, hint) {
 /** Fila de ingreso: solo importe (vacío = no se cobra este mes) */
 function _amountRow(label, value, onChange) {
   const input = el('input', {
-    class: 'modal-input plan-editor-amount', type: 'number', step: '0.01', min: '0',
+    class: 'modal-input plan-editor-amount', type: 'number', inputmode: 'decimal', step: '0.01', min: '0',
     value: value === '' ? '' : String(value), placeholder: '0',
     oninput: () => { onChange(input.value === '' ? '' : Number(input.value)); _w.refreshTotals(); },
   });
