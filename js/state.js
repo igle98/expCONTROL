@@ -30,6 +30,14 @@ export let incomeKeys = [];
 /** @type {Array<{rowIndex:number, month:string, incomeKey:string, amount:number, note:string}>} */
 export let incomeLines = [];
 
+/** @type {Array<{name:string, type:string, status:string, target:number, targetDate:string, note:string}>} */
+export let huchas = [];
+/** ¿La pestaña HUCHAS existe ya en el Sheet? (si no, `huchas` son las de serie) */
+export let huchasSaved = false;
+
+/** @type {Array<{date:string, month:string, txId:string, source:string, amount:number, kind:string, note:string}>} */
+export let funding = [];
+
 /** @type {Array} */
 export let budgetHistory = [];
 
@@ -61,6 +69,8 @@ export function setAllBudgetKeys(rows, format = 'legacy') {
 }
 export function setPlanLines(rows)    { planLines = rows; _rebuildBudgets(); }
 export function setIncome(keys, lines) { incomeKeys = keys; incomeLines = lines; }
+export function setHuchas(rows, saved) { huchas = rows; huchasSaved = saved; }
+export function setFunding(rows)      { funding = rows; }
 export function setSheetMeta(meta)    { sheetMeta = meta; }
 export function setBudgetHistory(rows) { budgetHistory = rows; }
 export function setCurrentMonth(m)    { currentMonth = m; }
@@ -380,6 +390,102 @@ export function getPrevIncomeMonth(month) {
 /** Total presupuestado del mes (todas las líneas del plan, incluidas las especiales) */
 export function getPlannedTotal(month) {
   return getPlanLinesForMonth(month).reduce((s, l) => s + l.amount, 0);
+}
+
+// =========================================================
+// Huchas y cobertura de gastos (FUNDING)
+// =========================================================
+// Convenciones de FUNDING (importes siempre positivos):
+//   source 'HUCHA:<n>' + kind 'aportacion' → entra dinero en la hucha
+//   source 'HUCHA:<n>' + kind 'retirada'   → sale para pagar el gasto tx_id
+//   source 'HUCHA:<n>' + kind 'ajuste'     → saldo inicial/corrección (puede ser negativo)
+//   source 'IMPREVISTOS' | 'SIN_ASIGNAR' | 'CAT:<key>' + kind 'cobertura' → cubre parte del gasto tx_id
+
+export const HUCHA_PREFIX = '@HUCHA:';
+
+/** Saldo actual de una hucha */
+export function getHuchaBalance(name) {
+  const src = `HUCHA:${name}`;
+  let balance = 0;
+  for (const f of funding) {
+    if (f.source !== src) continue;
+    if (f.kind === 'retirada') balance -= f.amount;
+    else balance += f.amount;          // aportacion, ajuste
+  }
+  return Math.round(balance * 100) / 100;
+}
+
+/** Aportación prevista en el plan del mes para una hucha */
+export function getHuchaPlanned(month, name) {
+  return getPlanLinesForMonth(month).find(l => l.budgetKey === `${HUCHA_PREFIX}${name}`)?.amount ?? 0;
+}
+
+/** Aportación ya registrada (hecha) en el mes para una hucha */
+export function getHuchaContributed(month, name) {
+  return funding
+    .filter(f => f.month === month && f.source === `HUCHA:${name}` && f.kind === 'aportacion')
+    .reduce((s, f) => s + f.amount, 0);
+}
+
+/** Movimientos de una hucha, más reciente primero */
+export function getHuchaMoves(name) {
+  return funding.filter(f => f.source === `HUCHA:${name}`)
+    .sort((a, b) => (b.date || b.month).localeCompare(a.date || a.month));
+}
+
+/** Coberturas (incluidas retiradas de hucha) de un gasto */
+export function getTxCoverage(txId) {
+  return funding.filter(f => f.txId === txId && (f.kind === 'cobertura' || f.kind === 'retirada'));
+}
+
+/**
+ * Situación de una categoría en un mes:
+ * inicial (plan) · ajustado (inicial + coberturas recibidas − dinero cedido a otras)
+ * · gastado · disponible (ajustado − gastado).
+ */
+export function getCategoryStatus(month, budgetKey) {
+  const inicial = getPlanLinesForMonth(month).find(l => l.budgetKey === budgetKey)?.amount ?? 0;
+  const txIds = new Set(transactions.filter(t => t.month === month && t.budgetKey === budgetKey).map(t => t.txId));
+  let received = 0, given = 0;
+  const sources = new Map();
+  for (const f of funding) {
+    if (f.month !== month) continue;
+    if (f.kind === 'cobertura' && f.source === `CAT:${budgetKey}`) given += f.amount;
+    if ((f.kind === 'cobertura' || f.kind === 'retirada') && f.txId && txIds.has(f.txId)) {
+      received += f.amount;
+      sources.set(f.source, (sources.get(f.source) ?? 0) + f.amount);
+    }
+  }
+  const gastado = getSpendByMonthAndKey(month, budgetKey);
+  const ajustado = inicial + received - given;
+  return { inicial, ajustado, gastado, disponible: ajustado - gastado, received, given, sources };
+}
+
+/** Colchón de imprevistos del mes: previsto, usado y lo que queda */
+export function getReserveStatus(month) {
+  const planned = getPlanLinesForMonth(month).find(l => l.budgetKey === '@IMPREVISTOS')?.amount ?? 0;
+  const used = funding
+    .filter(f => f.month === month && f.kind === 'cobertura' && f.source === 'IMPREVISTOS')
+    .reduce((s, f) => s + f.amount, 0);
+  return { planned, used, remaining: planned - used };
+}
+
+/** Dinero del mes sin asignar: ingresos − presupuestado − lo ya usado para cubrir gastos */
+export function getUnassigned(month) {
+  const income = getIncomeForMonth(month).reduce((s, l) => s + l.amount, 0);
+  const used = funding
+    .filter(f => f.month === month && f.kind === 'cobertura' && f.source === 'SIN_ASIGNAR')
+    .reduce((s, f) => s + f.amount, 0);
+  return income - getPlannedTotal(month) - used;
+}
+
+/** Última hucha usada para pagar gastos de una categoría (para preseleccionarla) */
+export function getLastHuchaForCategory(budgetKey) {
+  const txIds = new Set(transactions.filter(t => t.budgetKey === budgetKey).map(t => t.txId));
+  const last = funding
+    .filter(f => f.kind === 'retirada' && f.source.startsWith('HUCHA:') && txIds.has(f.txId))
+    .sort((a, b) => b.date.localeCompare(a.date))[0];
+  return last ? last.source.slice('HUCHA:'.length) : null;
 }
 
 /** Importe de una línea especial del plan (p.ej. '@IMPREVISTOS') para el mes */

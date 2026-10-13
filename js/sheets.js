@@ -1,12 +1,12 @@
 import {
   SPREADSHEET_ID, API_BASE, SHEETS, TX_COL, BK_COL, LEGACY_BK_COL, BH_COL, MM_COL,
-  DEBT_COL, FUTURE_COL, PL_COL, IN_COL, DEFAULT_INCOME_KEYS,
+  DEBT_COL, FUTURE_COL, PL_COL, IN_COL, DEFAULT_INCOME_KEYS, HUCHA_COL, DEFAULT_HUCHAS, FUND_COL,
 } from './config.js';
 import { typeFromCode, isValidCode } from './utils/categoryCodes.js';
 import { getToken } from './auth.js';
 import {
   setTransactions, setAllBudgetKeys, setSheetMeta, setBudgetHistory,
-  setMerchantMap, upsertMerchantMap, setDebts, setFutureItems, setPlanLines, setIncome, sheetMeta,
+  setMerchantMap, upsertMerchantMap, setDebts, setFutureItems, setPlanLines, setIncome, setHuchas, setFunding, sheetMeta,
 } from './state.js';
 
 // =========================================================
@@ -32,6 +32,8 @@ export async function loadAll() {
     loadBudgetKeys(),
     loadPlanLines(),
     loadIncome(),
+    loadHuchas(),
+    loadFunding(),
     loadBudgetHistory(),
     loadMerchantMap(),
     loadDebts(),
@@ -175,6 +177,106 @@ async function _replaceMonthRows(title, header, month, rows) {
   const all = [...kept, ...rows].sort((a, b) =>
     String(a[0]).localeCompare(String(b[0])) || String(a[1]).localeCompare(String(b[1])));
   await writeSheet(title, [header, ...all]);
+}
+
+// =========================================================
+// HUCHAS y FUNDING — huchas y de dónde sale el dinero de cada gasto
+// =========================================================
+
+const HUCHAS_HEADER  = ['name', 'type', 'status', 'target', 'target_date', 'note'];
+const FUNDING_HEADER = ['date', 'month', 'tx_id', 'source', 'amount', 'kind', 'note'];
+
+async function _readOptional(range) {
+  try {
+    const data = await _apiFetch(`${API_BASE}/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}`);
+    return data.values ?? [];
+  } catch (err) {
+    if (err.status === 400 || err.status === 404) return null;
+    throw err;
+  }
+}
+
+/** Carga HUCHAS (si la pestaña no existe, las de serie sin guardar) */
+export async function loadHuchas() {
+  const rows = await _readOptional(`${SHEETS.HUCHAS}!A:F`);
+  const huchas = rows === null
+    ? DEFAULT_HUCHAS.map(([name, type, status = 'active']) => ({ name, type, status, target: 0, targetDate: '', note: '', rowIndex: null }))
+    : rows.slice(1).map((r, i) => ({
+        rowIndex:   i + 1,
+        name:       String(r[HUCHA_COL.NAME] ?? '').trim(),
+        type:       String(r[HUCHA_COL.TYPE] ?? '').trim().toLowerCase() === 'provision' ? 'provision' : 'objetivo',
+        status:     String(r[HUCHA_COL.STATUS] ?? '').trim().toLowerCase() || 'active',
+        target:     _parseNumber(r[HUCHA_COL.TARGET]),
+        targetDate: String(r[HUCHA_COL.TARGET_DATE] ?? '').trim(),
+        note:       String(r[HUCHA_COL.NOTE] ?? '').trim(),
+      })).filter(h => h.name);
+  setHuchas(huchas, rows !== null);
+}
+
+/** Crea la pestaña HUCHAS con las huchas de serie si aún no existe */
+async function _ensureHuchasSheet() {
+  if (sheetMeta[SHEETS.HUCHAS] !== undefined) return;
+  await loadSheetMeta();
+  if (sheetMeta[SHEETS.HUCHAS] !== undefined) return;
+  await ensureSheet(SHEETS.HUCHAS, HUCHAS_HEADER);
+  await appendRows(SHEETS.HUCHAS, DEFAULT_HUCHAS.map(([name, type, status = 'active']) => [name, type, status, '', '', '']));
+}
+
+/**
+ * Crea o actualiza una hucha (por nombre original).
+ * @param {string|null} originalName  null = nueva
+ * @param {{name:string, type:string, status:string, target?:number, targetDate?:string, note?:string}} h
+ */
+export async function saveHucha(originalName, h) {
+  await _ensureHuchasSheet();
+  const rows = await _readOptional(`${SHEETS.HUCHAS}!A:A`) ?? [];
+  const row = [h.name, h.type, h.status || 'active', Number(h.target) || '', h.targetDate || '', h.note || ''];
+  const idx = originalName === null ? -1 : rows.findIndex((r, i) => i > 0 && String(r[0] ?? '').trim() === originalName);
+  if (idx > 0) {
+    await _batchValuesUpdate([{ range: `${SHEETS.HUCHAS}!A${idx + 1}:F${idx + 1}`, values: [row] }]);
+    if (originalName !== h.name) await _renameFundingSource(`HUCHA:${originalName}`, `HUCHA:${h.name}`);
+  } else {
+    await appendRows(SHEETS.HUCHAS, [row]);
+  }
+  await Promise.all([loadHuchas(), loadFunding()]);
+}
+
+async function _renameFundingSource(from, to) {
+  const rows = await _readOptional(`${SHEETS.FUNDING}!D:D`);
+  if (!rows) return;
+  const data = [];
+  rows.forEach((r, i) => {
+    if (i > 0 && String(r[0] ?? '').trim() === from) data.push({ range: `${SHEETS.FUNDING}!D${i + 1}`, values: [[to]] });
+  });
+  if (data.length) await _batchValuesUpdate(data);
+}
+
+/** Carga FUNDING (movimientos de huchas y coberturas de gastos) */
+export async function loadFunding() {
+  const rows = await _readOptional(`${SHEETS.FUNDING}!A:G`) ?? [];
+  setFunding(rows.slice(1).map((r, i) => ({
+    rowIndex: i + 1,
+    date:   _parseDate(r[FUND_COL.DATE]),
+    month:  String(r[FUND_COL.MONTH] ?? '').trim(),
+    txId:   String(r[FUND_COL.TX_ID] ?? '').trim(),
+    source: String(r[FUND_COL.SOURCE] ?? '').trim(),
+    amount: _parseNumber(r[FUND_COL.AMOUNT]),
+    kind:   String(r[FUND_COL.KIND] ?? '').trim(),
+    note:   String(r[FUND_COL.NOTE] ?? '').trim(),
+  })).filter(f => f.source && f.amount));
+}
+
+/**
+ * Añade movimientos a FUNDING.
+ * @param {Array<{date:string, month:string, txId?:string, source:string, amount:number, kind:string, note?:string}>} moves
+ */
+export async function appendFunding(moves) {
+  if (moves.length === 0) return;
+  await ensureSheet(SHEETS.FUNDING, FUNDING_HEADER);
+  if (moves.some(m => m.source.startsWith('HUCHA:'))) await _ensureHuchasSheet();
+  await appendRows(SHEETS.FUNDING, moves.map(m =>
+    [m.date, m.month, m.txId ?? '', m.source, Number(m.amount), m.kind, m.note ?? '']));
+  await loadFunding();
 }
 
 // =========================================================
@@ -1192,6 +1294,8 @@ function _parseTransactionRow(row, absoluteRowIndex) {
 
   return {
     rowIndex:    absoluteRowIndex,
+    txId:        String(row[TX_COL.TX_ID] ?? '').trim(),
+    description: String(row[TX_COL.DESCRIPTION] ?? '').trim(),
     date:        _parseDate(dateRaw),
     amount:      _parseNumber(amountRaw),
     merchantNorm: String(row[TX_COL.MERCHANT_NORM] ?? '').trim(),

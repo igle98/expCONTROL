@@ -1,6 +1,7 @@
 import * as state from '../state.js';
 import * as debts from './debts.js';
 import * as future from './future.js';
+import * as huchas from './huchas.js';
 import { getCategoryColor } from '../utils/colors.js';
 import { formatCurrency, formatMonthShort } from '../utils/formatters.js';
 
@@ -20,6 +21,7 @@ export function render() {
   }
   // Secciones "Me deben" y "Compras futuras" al final
   debts.render();
+  huchas.render();
   future.render();
 }
 

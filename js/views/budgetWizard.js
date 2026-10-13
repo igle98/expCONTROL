@@ -50,7 +50,10 @@ export function openBudgetWizard(month, onSaved) {
       amount:   plan.get(c.budgetKey) ?? (constant ? c.refAmount : 0),
     });
   }
-  for (const key of [RESERVE_KEY, SAVINGS_KEY]) {
+  const huchaKeys = state.huchas
+    .filter(h => h.status === 'active' || plan.has(`${state.HUCHA_PREFIX}${h.name}`))
+    .map(h => `${state.HUCHA_PREFIX}${h.name}`);
+  for (const key of [RESERVE_KEY, SAVINGS_KEY, ...huchaKeys]) {
     lines.set(key, { included: plan.has(key), amount: plan.get(key) ?? 0 });
   }
 
@@ -217,15 +220,43 @@ function _stepNeeds() {
 // ---------- Paso 4: ahorro (las huchas llegarán en la siguiente fase)
 
 function _stepSavings() {
+  const group = (type, title) => {
+    const list = state.huchas.filter(h => h.type === type && _w.lines.has(`${state.HUCHA_PREFIX}${h.name}`));
+    if (list.length === 0) return null;
+    return el('div', { class: 'plan-editor-group' },
+      el('div', { class: 'cat-group-title' }, title),
+      ...list.map(h => _lineRow(`${state.HUCHA_PREFIX}${h.name}`, h.name, _huchaHint(h))),
+    );
+  };
   return el('div', { class: 'wizard-step' },
     _stepIntro('Ahorro y huchas',
-      'Lo que apartas a la cuenta de ahorro este mes. Mejor decidirlo ahora que ahorrar "lo que sobre".'),
+      'Lo que apartas a la cuenta de ahorro este mes, repartido por huchas. Mejor decidirlo ahora que ahorrar "lo que sobre".'),
+    group('objetivo', 'Objetivos'),
+    group('provision', 'Provisiones'),
     el('div', { class: 'plan-editor-group' },
-      _lineRow(SAVINGS_KEY, 'Ahorro', 'a la cuenta de ahorro'),
+      el('div', { class: 'cat-group-title' }, 'Sin hucha concreta'),
+      _lineRow(SAVINGS_KEY, 'Ahorro libre', 'a la cuenta de ahorro'),
     ),
-    el('p', { class: 'wizard-soon muted small' },
-      '🐷 Próximamente: aquí repartirás el ahorro entre tus huchas (fondo de emergencia, Navidades, ITV…).'),
   );
+}
+
+/** Saldo de la hucha y, si tiene objetivo con fecha, lo que haría falta al mes */
+function _huchaHint(h) {
+  const balance = state.getHuchaBalance(h.name);
+  const parts = [`saldo ${formatCurrency(balance, true)}`];
+  if (h.target > 0) {
+    const missing = h.target - balance;
+    if (missing <= 0) parts.push('objetivo cumplido');
+    else if (/^\d{4}-\d{2}$/.test(h.targetDate) && h.targetDate >= _w.month) {
+      const [y1, m1] = _w.month.split('-').map(Number);
+      const [y2, m2] = h.targetDate.split('-').map(Number);
+      const months = (y2 - y1) * 12 + (m2 - m1) + 1;
+      parts.push(`sugerido ${formatCurrency(missing / months, true)}/mes`);
+    } else {
+      parts.push(`faltan ${formatCurrency(missing, true)}`);
+    }
+  }
+  return parts.join(' · ');
 }
 
 // ---------- Pasos de categorías

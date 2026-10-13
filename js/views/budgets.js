@@ -88,7 +88,7 @@ export function render() {
   const varColumn = el('div', { class: 'budget-column budget-column-variables' },
     _summaryCard('Gastos Variables', varSpent, varBudget, true),
     el('div', { class: 'budget-cards-grid' },
-      ...varSorted.map(b => _variableCard(b, spendMap.get(b.budgetKey) ?? 0)),
+      ...varSorted.map(b => _variableCard(b, spendMap.get(b.budgetKey) ?? 0, isV2 ? state.getCategoryStatus(month, b.budgetKey) : null)),
     ),
   );
 
@@ -123,8 +123,9 @@ function _renderToolbar(month, isV2, allBudgets) {
   const incomeTotal = income.reduce((s, l) => s + l.amount, 0);
   const planned     = state.getPlannedTotal(month);
   const left        = incomeTotal - planned;
-  const reserve     = state.getPlanSpecial(month, RESERVE_KEY);
-  const savings     = state.getPlanSpecial(month, SAVINGS_KEY);
+  const reserve     = state.getReserveStatus(month);
+  const savings     = state.getPlanSpecial(month, SAVINGS_KEY)
+    + state.getPlanLinesForMonth(month).filter(l => l.budgetKey.startsWith(state.HUCHA_PREFIX)).reduce((s, l) => s + l.amount, 0);
 
   const counts = new Map(FILTERS.map(f => [f.key, allBudgets.filter(f.test).length]));
 
@@ -149,10 +150,11 @@ function _renderToolbar(month, isV2, allBudgets) {
         ? el('div', { class: 'budget-income-lines muted small' },
             income.map(l => `${l.incomeKey} ${formatCurrency(l.amount)}`).join(' · '))
         : el('div', { class: 'muted small' }, 'Sin ingresos registrados este mes.'),
-      reserve || savings
+      reserve.planned || savings
         ? el('div', { class: 'muted small' },
-            [savings ? `Ahorro ${formatCurrency(savings, true)}` : null,
-             reserve ? `Imprevistos ${formatCurrency(reserve, true)}` : null].filter(Boolean).join(' · '))
+            [savings ? `Ahorro y huchas ${formatCurrency(savings, true)}` : null,
+             reserve.planned ? `Colchón: quedan ${formatCurrency(reserve.remaining, true)} de ${formatCurrency(reserve.planned, true)}` : null,
+            ].filter(Boolean).join(' · '))
         : null,
     ),
     el('div', { class: 'debts-filters budget-filters' },
@@ -222,8 +224,10 @@ function _summaryCard(label, spent, budget, showBar) {
 // Tarjeta Variable (con barra de progreso)
 // =========================================================
 
-function _variableCard(budget, spent) {
-  const { budgetKey, monthlyBudget } = budget;
+function _variableCard(budget, spent, status = null) {
+  const { budgetKey } = budget;
+  // En v2 el presupuesto que cuenta es el ajustado (inicial ± coberturas)
+  const monthlyBudget = status ? status.ajustado : budget.monthlyBudget;
   const pct      = _pct(spent, monthlyBudget);
   const isOver   = pct > 100;
   const cls      = isOver ? 'progress-red' : 'progress-green';
@@ -250,7 +254,18 @@ function _variableCard(budget, spent) {
       }),
     ),
     el('div', { class: `budget-card-percent ${pctCls}` }, pctLabel),
+    status && (status.received || status.given) ? el('div', { class: 'budget-card-adjust muted small' }, _adjustNote(status)) : null,
   );
+}
+
+/** "50 € previstos · +30 € de imprevistos · −10 € cedidos" */
+function _adjustNote(st) {
+  const label = s => s === 'IMPREVISTOS' ? 'imprevistos' : s === 'SIN_ASIGNAR' ? 'sin asignar'
+    : s.startsWith('HUCHA:') ? `hucha ${s.slice(6)}` : s.startsWith('CAT:') ? s.slice(4) : s;
+  const parts = [`${formatCurrency(st.inicial, true)} previstos`];
+  for (const [src, amount] of st.sources) parts.push(`+${formatCurrency(amount, true)} de ${label(src)}`);
+  if (st.given) parts.push(`−${formatCurrency(st.given, true)} cedidos`);
+  return parts.join(' · ');
 }
 
 // =========================================================

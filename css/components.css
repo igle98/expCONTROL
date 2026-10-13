@@ -1473,3 +1473,33 @@ option {
 .plan-editor-row-income { grid-template-columns: 1fr 7rem; }
 .plan-editor-hint { display: block; font-size: 10px; color: var(--text-muted); }
 
+/* Huchas */
+.hucha-group { display: flex; flex-direction: column; gap: var(--space-2); }
+.hucha-row { background: var(--bg-card-alt); border-radius: var(--radius-md); border-bottom: none; }
+.hucha-bar { height: 4px; margin-top: var(--space-1); background: var(--bg-input); border-radius: var(--radius-full); overflow: hidden; }
+.hucha-bar-fill { height: 100%; background: var(--accent); }
+.hucha-negative { color: var(--danger); }
+.hucha-positive { color: var(--success); }
+.hucha-pending {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+  padding: var(--space-3); border-radius: var(--radius-md);
+  background: var(--accent-dim); font-size: var(--text-sm);
+}
+.hucha-moves { display: flex; flex-direction: column; gap: var(--space-1); max-height: 50vh; overflow-y: auto; }
+.hucha-move { display: flex; justify-content: space-between; gap: var(--space-2); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+
+/* Cobertura de gastos */
+.coverage { display: flex; flex-direction: column; gap: var(--space-3); }
+.coverage-source { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3); background: var(--bg-card-alt); border-radius: var(--radius-md); }
+.coverage-source-title { font-weight: var(--font-semibold); font-size: var(--text-sm); }
+.coverage-hucha-pick { display: grid; grid-template-columns: 1fr 2fr; gap: var(--space-2); }
+.coverage-amount-row { display: grid; grid-template-columns: 1fr auto; gap: var(--space-2); }
+.coverage-summary { font-size: var(--text-sm); font-weight: var(--font-semibold); }
+.coverage-pending { color: var(--warning); }
+.coverage-ok { color: var(--success); }
+.budget-card-adjust { margin-top: var(--space-1); }
+
+@media (min-width: 768px) {
+  #view-charts .huchas-section { grid-column: 1 / -1; margin-top: 0; }
+}
+

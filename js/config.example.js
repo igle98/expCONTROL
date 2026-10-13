@@ -39,6 +39,7 @@ export const SHEETS = {
   MIGRATIONS:     'MIGRATIONS',
   INCOME:         'INCOME',
   INCOME_KEYS:    'INCOME_KEYS',
+  HUCHAS:         'HUCHAS',
 };
 
 // Índices de columna en TRANSACTIONS (0-based)
@@ -171,5 +172,32 @@ export const IN_COL = {
 
 // Categorías de ingreso (INCOME_KEYS): income_key | status (active | archived)
 export const DEFAULT_INCOME_KEYS = ['Nómina', 'Alba', 'Extra nómina', 'Extra propios', 'Cobro de deudas', 'Otros'];
+
+// Índices de columna en HUCHAS (0-based)
+// name | type | status | target | target_date | note
+// type: objetivo | provision · status: active | archived · target_date: 'YYYY-MM' opcional
+export const HUCHA_COL = {
+  NAME:        0,
+  TYPE:        1,
+  STATUS:      2,
+  TARGET:      3,
+  TARGET_DATE: 4,
+  NOTE:        5,
+};
+
+// Huchas iniciales (Sheet CLASIFICACION, pestaña HUCHAS, 2026-10-10). Las de inversión
+// (TR, MY) no son huchas: son categorías INV. BODAS estaba inactiva.
+export const DEFAULT_HUCHAS = [
+  ['FONDO EMERGENCIA', 'objetivo'], ['PC', 'objetivo'], ['NAVIDADES', 'objetivo'],
+  ['CREMAS', 'objetivo'], ['SUPLEMENTOS', 'objetivo'], ['OCIO_PLAN', 'objetivo'],
+  ['TATTOO', 'objetivo'], ['GIFTS', 'objetivo'], ['ENTRADA_COCHE', 'objetivo'],
+  ['VIAJES', 'objetivo'], ['CURSOS', 'objetivo'], ['COLONIA', 'objetivo'],
+  ['ARREGLO_COCHE', 'objetivo'], ['ROPA_CAPRICHO', 'objetivo'], ['ROPA_BASICA', 'objetivo'],
+  ['CAPRICHOS', 'provision'], ['DECLA_RENTA', 'provision'], ['HOUSE_INS', 'provision'],
+  ['ITV', 'provision'], ['MINOXIDIL', 'provision'], ['DUTASTERIDA', 'provision'],
+  ['SHAMPOO', 'provision'], ['LENTILLAS', 'provision'], ['AGUA', 'provision'],
+  ['RODAJE', 'provision'], ['SALUD_DENTAL', 'provision'], ['BODAS', 'provision', 'archived'],
+  ['EMPRENDIMIENTO', 'provision'],
+];
 
 export const API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';

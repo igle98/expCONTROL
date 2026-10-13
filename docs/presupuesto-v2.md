@@ -60,6 +60,23 @@ Cada categoría tiene un código de tres letras:
 - Al pagar: se elige tipo (provisión/objetivo) y luego cualquier hucha de la lista; la app
   preselecciona la última usada con esa categoría.
 
+### Implementación (fase 1)
+
+- `HUCHAS`: `name | type | status | target | target_date | note`. Se crea con las de serie
+  (CLASIFICACION) la primera vez que se guarda algo de una hucha.
+- `FUNDING` (importes siempre positivos salvo ajustes):
+  `HUCHA:<n>` + `aportacion` (entra) · `retirada` (paga el gasto `tx_id`) · `ajuste` (saldo inicial/corrección);
+  `IMPREVISTOS` | `SIN_ASIGNAR` | `CAT:<key>` + `cobertura` (cubre parte del gasto `tx_id`).
+- Sección **Huchas** en Gráficas: saldos, objetivo y progreso, movimientos, "Ajustar saldo"
+  (para meter lo ya ahorrado), alta/edición/archivado y aviso de **aportaciones previstas del mes**
+  con botón "Ya la hice" (registra las aportaciones al hacer la transferencia).
+- Paso 4 del asistente: aportación prevista por hucha (líneas `@HUCHA:<n>` del plan) con saldo y,
+  si hay objetivo con fecha, la cantidad sugerida al mes; más `@AHORRO` (ahorro libre).
+- Al registrar un gasto que no cabe (o de categoría que permite hucha) se abre **Cubrir el exceso**.
+  La hucha se preselecciona: la última usada con esa categoría o la que se llama igual.
+- Vista Presupuesto: las variables muestran el presupuesto **ajustado** y de dónde vino
+  ("100 € previstos · +30 € de GASOLINA"); arriba, lo que queda del colchón.
+
 ## 5. Cobertura de gastos (regla central)
 
 **Registrar siempre el gasto; ampliar el presupuesto ajustado solo por el importe cubierto por una

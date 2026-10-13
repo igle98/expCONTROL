@@ -10,6 +10,7 @@ import { formatCurrency } from '../utils/formatters.js';
 import { parseExpense } from '../expense/parser.js';
 import { normalizeMerchant } from '../expense/normalizer.js';
 import { classifyWithOpenAI, hasOpenAIKey } from '../expense/classifier.js';
+import { maybeOpenCoverage } from './coverage.js';
 
 const ROOT_ID = 'view-add-expense';
 
@@ -280,6 +281,10 @@ async function _confirmAndSave(evt, decision, onDone) {
     _clearResult();
     _setStatus(null);
     if (typeof onDone === 'function') onDone();
+
+    // Si no cabe en su categoría (o admite hucha), decidir de dónde sale el dinero
+    const saved = state.transactions.find(t => t.txId === txId);
+    maybeOpenCoverage(saved);
   } catch (err) {
     showToast('Error al guardar: ' + err.message, 'error', 5000);
     _setStatus(el('p', { class: 'banner banner-error' }, '❌ ' + err.message));
