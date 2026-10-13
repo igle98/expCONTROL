@@ -37,6 +37,8 @@ export const SHEETS = {
   PLAN_LINES:     'PLAN_LINES',
   FUNDING:        'FUNDING',
   MIGRATIONS:     'MIGRATIONS',
+  INCOME:         'INCOME',
+  INCOME_KEYS:    'INCOME_KEYS',
 };
 
 // Índices de columna en TRANSACTIONS (0-based)
@@ -157,5 +159,17 @@ export const FUND_COL = {
   KIND:   5,
   NOTE:   6,
 };
+
+// Índices de columna en INCOME (0-based) — ingresos de cada mes
+// month | income_key | amount | note
+export const IN_COL = {
+  MONTH:      0,
+  INCOME_KEY: 1,
+  AMOUNT:     2,
+  NOTE:       3,
+};
+
+// Categorías de ingreso (INCOME_KEYS): income_key | status (active | archived)
+export const DEFAULT_INCOME_KEYS = ['Nómina', 'Alba', 'Extra nómina', 'Extra propios', 'Cobro de deudas', 'Otros'];
 
 export const API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';

@@ -24,6 +24,12 @@ export let catalogFormat = 'legacy';
 /** @type {Array<{rowIndex:number, month:string, budgetKey:string, amount:number, note:string}>} */
 export let planLines = [];
 
+/** @type {Array<{incomeKey:string, status:string}>} Categorías de ingreso */
+export let incomeKeys = [];
+
+/** @type {Array<{rowIndex:number, month:string, incomeKey:string, amount:number, note:string}>} */
+export let incomeLines = [];
+
 /** @type {Array} */
 export let budgetHistory = [];
 
@@ -54,6 +60,7 @@ export function setAllBudgetKeys(rows, format = 'legacy') {
   _rebuildBudgets();
 }
 export function setPlanLines(rows)    { planLines = rows; _rebuildBudgets(); }
+export function setIncome(keys, lines) { incomeKeys = keys; incomeLines = lines; }
 export function setSheetMeta(meta)    { sheetMeta = meta; }
 export function setBudgetHistory(rows) { budgetHistory = rows; }
 export function setCurrentMonth(m)    { currentMonth = m; }
@@ -354,6 +361,25 @@ export function getPlanSourceMonth(month) {
 export function getPlanLinesForMonth(month) {
   const source = getPlanSourceMonth(month);
   return source ? planLines.filter(l => l.month === source) : [];
+}
+
+/** Ingresos registrados en el propio mes */
+export function getIncomeForMonth(month) {
+  return incomeLines.filter(l => l.month === month);
+}
+
+/** Último mes anterior a `month` con ingresos (para proponerlos de nuevo), o null */
+export function getPrevIncomeMonth(month) {
+  let best = null;
+  for (const l of incomeLines) {
+    if (l.month < month && (best === null || l.month > best)) best = l.month;
+  }
+  return best;
+}
+
+/** Total presupuestado del mes (todas las líneas del plan, incluidas las especiales) */
+export function getPlannedTotal(month) {
+  return getPlanLinesForMonth(month).reduce((s, l) => s + l.amount, 0);
 }
 
 /** Importe de una línea especial del plan (p.ej. '@IMPREVISTOS') para el mes */

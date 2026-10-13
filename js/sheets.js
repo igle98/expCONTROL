@@ -1,12 +1,12 @@
 import {
   SPREADSHEET_ID, API_BASE, SHEETS, TX_COL, BK_COL, LEGACY_BK_COL, BH_COL, MM_COL,
-  DEBT_COL, FUTURE_COL, PL_COL,
+  DEBT_COL, FUTURE_COL, PL_COL, IN_COL, DEFAULT_INCOME_KEYS,
 } from './config.js';
 import { typeFromCode, isValidCode } from './utils/categoryCodes.js';
 import { getToken } from './auth.js';
 import {
   setTransactions, setAllBudgetKeys, setSheetMeta, setBudgetHistory,
-  setMerchantMap, upsertMerchantMap, setDebts, setFutureItems, setPlanLines, sheetMeta,
+  setMerchantMap, upsertMerchantMap, setDebts, setFutureItems, setPlanLines, setIncome, sheetMeta,
 } from './state.js';
 
 // =========================================================
@@ -31,6 +31,7 @@ export async function loadAll() {
     loadTransactions(),
     loadBudgetKeys(),
     loadPlanLines(),
+    loadIncome(),
     loadBudgetHistory(),
     loadMerchantMap(),
     loadDebts(),
@@ -155,17 +156,91 @@ export async function loadPlanLines() {
  * @param {Array<{budgetKey:string, amount:number, note?:string}>} lines
  */
 export async function savePlanForMonth(month, lines) {
-  await ensureSheet(SHEETS.PLAN_LINES, PLAN_HEADER);
+  await _replaceMonthRows(SHEETS.PLAN_LINES, PLAN_HEADER, month,
+    lines.map(l => [month, l.budgetKey, Number(l.amount) || 0, l.note ?? '']));
+  await loadPlanLines();
+}
+
+/**
+ * Sustituye las filas de un mes (columna A = 'YYYY-MM', B = clave) de una pestaña
+ * pequeña, reescribiéndola entera y conservando el resto de meses.
+ */
+async function _replaceMonthRows(title, header, month, rows) {
+  await ensureSheet(title, header);
   const data = await _apiFetch(
-    `${API_BASE}/${SPREADSHEET_ID}/values/${encodeURIComponent(`${SHEETS.PLAN_LINES}!A:D`)}`
+    `${API_BASE}/${SPREADSHEET_ID}/values/${encodeURIComponent(`${title}!A:D`)}`
   );
   const kept = (data.values ?? []).slice(1)
-    .filter(r => String(r[PL_COL.MONTH] ?? '').trim() !== month && r[PL_COL.BUDGET_KEY]);
-  const added = lines.map(l => [month, l.budgetKey, Number(l.amount) || 0, l.note ?? '']);
-  const all = [...kept, ...added].sort((a, b) =>
+    .filter(r => String(r[0] ?? '').trim() !== month && r[1]);
+  const all = [...kept, ...rows].sort((a, b) =>
     String(a[0]).localeCompare(String(b[0])) || String(a[1]).localeCompare(String(b[1])));
-  await writeSheet(SHEETS.PLAN_LINES, [PLAN_HEADER, ...all]);
-  await loadPlanLines();
+  await writeSheet(title, [header, ...all]);
+}
+
+// =========================================================
+// INCOME / INCOME_KEYS — ingresos por mes y sus categorías
+// =========================================================
+
+const INCOME_HEADER      = ['month', 'income_key', 'amount', 'note'];
+const INCOME_KEYS_HEADER = ['income_key', 'status'];
+
+/** Carga categorías de ingreso e ingresos (vacíos si las pestañas no existen aún) */
+export async function loadIncome() {
+  const read = async (range) => {
+    try {
+      const data = await _apiFetch(`${API_BASE}/${SPREADSHEET_ID}/values/${encodeURIComponent(range)}`);
+      return data.values ?? null;
+    } catch (err) {
+      if (err.status === 400 || err.status === 404) return null;
+      throw err;
+    }
+  };
+  const [keyRows, incomeRows] = await Promise.all([
+    read(`${SHEETS.INCOME_KEYS}!A:B`),
+    read(`${SHEETS.INCOME}!A:D`),
+  ]);
+
+  const keys = keyRows
+    ? keyRows.slice(1).filter(r => r[0]).map(r => ({
+        incomeKey: String(r[0]).trim(),
+        status:    String(r[1] ?? '').trim().toLowerCase() || 'active',
+      }))
+    : DEFAULT_INCOME_KEYS.map(k => ({ incomeKey: k, status: 'active' }));
+
+  const lines = [];
+  (incomeRows ?? []).slice(1).forEach((r, i) => {
+    const month = String(r[IN_COL.MONTH] ?? '').trim();
+    const incomeKey = String(r[IN_COL.INCOME_KEY] ?? '').trim();
+    if (!/^\d{4}-\d{2}$/.test(month) || !incomeKey) return;
+    lines.push({
+      rowIndex: i + 1, month, incomeKey,
+      amount: _parseNumber(r[IN_COL.AMOUNT]),
+      note:   String(r[IN_COL.NOTE] ?? '').trim(),
+    });
+  });
+  setIncome(keys, lines);
+}
+
+/** Crea una categoría de ingreso (y la pestaña con las de serie, si no existía) */
+export async function appendIncomeKey(incomeKey) {
+  if (sheetMeta[SHEETS.INCOME_KEYS] === undefined) await loadSheetMeta();
+  if (sheetMeta[SHEETS.INCOME_KEYS] === undefined) {
+    await ensureSheet(SHEETS.INCOME_KEYS, INCOME_KEYS_HEADER);
+    await appendRows(SHEETS.INCOME_KEYS, DEFAULT_INCOME_KEYS.map(k => [k, 'active']));
+  }
+  await appendRows(SHEETS.INCOME_KEYS, [[incomeKey, 'active']]);
+  await loadIncome();
+}
+
+/**
+ * Sustituye los ingresos de un mes.
+ * @param {string} month
+ * @param {Array<{incomeKey:string, amount:number, note?:string}>} lines
+ */
+export async function saveIncomeForMonth(month, lines) {
+  await _replaceMonthRows(SHEETS.INCOME, INCOME_HEADER, month,
+    lines.map(l => [month, l.incomeKey, Number(l.amount) || 0, l.note ?? '']));
+  await loadIncome();
 }
 
 /** Carga BUDGET_HISTORY completo y actualiza state */

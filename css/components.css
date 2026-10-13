@@ -1371,11 +1371,16 @@ option {
 .budgets-toolbar:empty { display: none; }
 .budgets-toolbar {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
   gap: var(--space-3);
   margin-bottom: var(--space-3);
 }
+.budget-income-card { display: flex; flex-direction: column; gap: var(--space-2); }
+.budget-income-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.budget-income-figures { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-2); }
+.budget-income-figure { display: flex; flex-direction: column; }
+.budget-income-amount { font-size: var(--text-lg); font-weight: var(--font-bold); font-variant-numeric: tabular-nums; }
+.budget-income-figure.is-negative .budget-income-amount { color: var(--danger); }
 .budget-out-of-plan { margin-top: var(--space-3); }
 .budget-out-of-plan-row {
   display: flex;
@@ -1433,4 +1438,31 @@ option {
 .migration-row-main { min-width: 0; }
 .migration-row-desc { font-size: var(--text-sm); font-weight: var(--font-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .migration-select { padding: var(--space-1) var(--space-2); font-size: var(--text-xs); }
+
+/* Asistente de presupuesto */
+.wizard { display: flex; flex-direction: column; gap: var(--space-3); }
+.wizard-totals {
+  position: sticky;
+  top: calc(-1 * var(--space-4));
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-card-alt);
+  border-radius: var(--radius-sm);
+}
+.wizard-total { display: flex; flex-direction: column; }
+.wizard-total-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
+.wizard-total-amount { font-weight: var(--font-bold); font-variant-numeric: tabular-nums; }
+.wizard-total.is-negative .wizard-total-amount { color: var(--danger); }
+.wizard-total.is-positive .wizard-total-amount { color: var(--success); }
+.wizard-steps { display: flex; gap: var(--space-2); overflow-x: auto; padding-bottom: 2px; }
+.wizard-steps .chip { white-space: nowrap; flex-shrink: 0; }
+.wizard-step { display: flex; flex-direction: column; gap: var(--space-3); }
+.wizard-step-title { font-weight: var(--font-semibold); }
+.wizard-add-row { display: grid; grid-template-columns: 1fr auto; gap: var(--space-2); }
+.wizard-soon { padding: var(--space-2) var(--space-3); background: var(--bg-input); border-radius: var(--radius-sm); }
+.plan-editor-row-income { grid-template-columns: 1fr 7rem; }
+.plan-editor-hint { display: block; font-size: 10px; color: var(--text-muted); }
 

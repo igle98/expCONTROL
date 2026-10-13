@@ -40,9 +40,16 @@ Cada categoría tiene un código de tres letras:
 
 - Cada mes tiene su propio plan (`PLAN_MONTHS` + `PLAN_LINES`): preparar el mes siguiente no toca el actual.
 - Los presupuestos históricos (`BUDGET_HISTORY`) se convierten en planes de esos meses.
-- Orden del asistente: Ingresos → Fijos/discontinuos → Inversión → Ahorro y aportaciones a huchas
-  → Reserva de imprevistos → Variables (con sugerencias) → Resumen y aprobar.
-- Ingresos por mes en `INCOME`.
+- Asistente (Presupuesto → 📝 Preparar / ✏️ Editar), en este orden:
+  1. **Ingresos** (categorías en `INCOME_KEYS`, ampliables desde el propio paso; importes en `INCOME`).
+  2. **Necesarios + electivos mensuales** (NM, ND, EM) y al final el **colchón** (`@IMPREVISTOS`).
+  3. **Inversiones** (INV).
+  4. **Ahorro y huchas**: de momento una línea `@AHORRO`; con la fase de huchas se reparte entre ellas.
+  5. **Resto de electivos** (ED).
+  Siempre visible: ingresos · asignado · te quedan. Cada categoría muestra lo gastado el mes anterior.
+- La vista Presupuesto muestra arriba ingresos, presupuestado y sin asignar, y filtros por tipo
+  (NM, ND, EM, ED, INV).
+- El selector de mes permite ir hasta un mes por delante para preparar el siguiente.
 
 ## 4. Huchas
 
@@ -106,7 +113,7 @@ Primero en PRUEBAS; después, con copia de seguridad, en el Sheet real.
 | Catálogo nuevo desde CLASIFICACION + `INV` + estados | BUDGET_KEYS |
 | `MERCHANT_MAP` con los nombres nuevos | Para que la IA clasifique bien |
 | `IMPREVISTOS` y `CAPRICHOS` duplicada | Imprevistos archivada; Caprichos una sola hucha |
-| Pestañas nuevas | PLAN_MONTHS, PLAN_LINES, INCOME, HUCHAS, FUNDING |
+| Pestañas nuevas | PLAN_LINES, FUNDING, MIGRATIONS (INCOME e INCOME_KEYS se crean al guardar el primer presupuesto) |
 
 ### Cómo se aplica
 
@@ -116,8 +123,7 @@ Ajustes → **Migración a presupuesto v2** → *Revisar cambios* → corregir l
 Orden de escritura (todo idempotente; el catálogo, que es lo que activa el modelo v2, va al final):
 celdas sueltas → PLAN_LINES y FUNDING → borrados → BUDGET_KEYS → marca en MIGRATIONS.
 
-Hasta que exista el asistente (fase 2), el presupuesto de cada mes se edita en
-Presupuesto → **✏️ Editar presupuesto**. Un mes sin plan propio usa el último anterior.
+Un mes sin plan propio usa el último anterior.
 
 ## 8. Fases
 

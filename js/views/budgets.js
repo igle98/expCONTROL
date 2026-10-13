@@ -4,9 +4,20 @@ import { formatCurrency, calcPercent, formatMonth } from '../utils/formatters.js
 import { el, show, hide } from '../utils/dom.js';
 import { saveBudgetSnapshot } from '../sheets.js';
 import { isInvestmentCode } from '../utils/categoryCodes.js';
-import { openPlanEditor } from './planEditor.js';
+import { openBudgetWizard, RESERVE_KEY, SAVINGS_KEY } from './budgetWizard.js';
 
 let _lastSnapshotMonth = null;
+
+// Filtro por tipo de categoría (persistido en memoria)
+const FILTERS = [
+  { key: 'all', label: 'Todas',                 test: () => true },
+  { key: 'NM',  label: 'Necesario mensual',     test: c => c.code?.startsWith('NM') },
+  { key: 'ND',  label: 'Necesario discontinuo', test: c => c.code?.startsWith('ND') },
+  { key: 'EM',  label: 'Electivo mensual',      test: c => c.code?.startsWith('EM') },
+  { key: 'ED',  label: 'Electivo discontinuo',  test: c => c.code?.startsWith('ED') },
+  { key: 'INV', label: 'Inversión',             test: c => isInvestmentCode(c.code) },
+];
+let _filter = 'all';
 
 // =========================================================
 // Render
@@ -19,17 +30,19 @@ export function render() {
 
   const month    = state.currentMonth;
   const spendMap = state.getSpendByCategory(month);
-  const budgets  = state.getBudgetKeysForMonth(month);
-
+  const allBudgets = state.getBudgetKeysForMonth(month);
   const isV2 = state.catalogFormat === 'v2';
-  _renderToolbar(month, isV2);
+  const filterTest = FILTERS.find(f => f.key === _filter)?.test ?? (() => true);
+  const budgets  = isV2 ? allBudgets.filter(filterTest) : allBudgets;
+
+  _renderToolbar(month, isV2, allBudgets);
 
   // Formato anterior: foto mensual en BUDGET_HISTORY. En v2 el plan de cada mes ya vive en PLAN_LINES.
   const _now = new Date();
   const _thisMonth = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}`;
   if (!isV2 && month === _thisMonth && budgets.length > 0 && _lastSnapshotMonth !== month) {
     _lastSnapshotMonth = month;
-    saveBudgetSnapshot(month, budgets, spendMap).catch(err => {
+    saveBudgetSnapshot(month, allBudgets, spendMap).catch(err => {
       console.warn('[BudgetHistory] No se pudo guardar snapshot:', err.message);
       _lastSnapshotMonth = null;
     });
@@ -90,7 +103,7 @@ export function render() {
     investments.length > 0 ? el('div', { class: 'budget-cards-grid' },
       ...investments.map(b => _fixedCard(b, spendMap.get(b.budgetKey) ?? 0)),
     ) : null,
-    isV2 ? _outOfBudgetCard(budgets, spendMap) : null,
+    isV2 && _filter === 'all' ? _outOfBudgetCard(budgets, spendMap) : null,
   );
 
   container.replaceChildren(varColumn, fixColumn);
@@ -100,24 +113,62 @@ export function render() {
 // Barra superior (v2): editar el presupuesto del mes
 // =========================================================
 
-function _renderToolbar(month, isV2) {
+function _renderToolbar(month, isV2, allBudgets) {
   const bar = document.getElementById('budgets-toolbar');
   if (!bar) return;
   if (!isV2) { bar.replaceChildren(); return; }
 
-  const source = state.getPlanSourceMonth(month);
-  const reserve = state.getPlanSpecial(month, '@IMPREVISTOS');
+  const source      = state.getPlanSourceMonth(month);
+  const income      = state.getIncomeForMonth(month);
+  const incomeTotal = income.reduce((s, l) => s + l.amount, 0);
+  const planned     = state.getPlannedTotal(month);
+  const left        = incomeTotal - planned;
+  const reserve     = state.getPlanSpecial(month, RESERVE_KEY);
+  const savings     = state.getPlanSpecial(month, SAVINGS_KEY);
+
+  const counts = new Map(FILTERS.map(f => [f.key, allBudgets.filter(f.test).length]));
+
   bar.replaceChildren(
-    el('div', { class: 'budgets-toolbar-info muted small' },
-      source === month ? `Presupuesto de ${formatMonth(month)}`
-        : source ? `Sin presupuesto propio: se usa el de ${formatMonth(source)}`
-        : 'Este mes no tiene presupuesto',
-      reserve ? ` · imprevistos ${formatCurrency(reserve, true)}` : '',
+    el('div', { class: 'budget-summary-card budget-income-card' },
+      el('div', { class: 'budget-income-head' },
+        el('div', { class: 'budget-total-label' },
+          source === month ? `Presupuesto de ${formatMonth(month)}`
+            : source ? `Sin presupuesto propio: se usa el de ${formatMonth(source)}`
+            : 'Este mes no tiene presupuesto'),
+        el('button', {
+          class: 'btn btn-primary btn-sm',
+          onclick: () => openBudgetWizard(month, () => render()),
+        }, source === month ? '✏️ Editar' : '📝 Preparar'),
+      ),
+      el('div', { class: 'budget-income-figures' },
+        _figure('Ingresos', incomeTotal),
+        _figure('Presupuestado', planned),
+        _figure('Sin asignar', left, left < 0 ? 'is-negative' : ''),
+      ),
+      income.length > 0
+        ? el('div', { class: 'budget-income-lines muted small' },
+            income.map(l => `${l.incomeKey} ${formatCurrency(l.amount)}`).join(' · '))
+        : el('div', { class: 'muted small' }, 'Sin ingresos registrados este mes.'),
+      reserve || savings
+        ? el('div', { class: 'muted small' },
+            [savings ? `Ahorro ${formatCurrency(savings, true)}` : null,
+             reserve ? `Imprevistos ${formatCurrency(reserve, true)}` : null].filter(Boolean).join(' · '))
+        : null,
     ),
-    el('button', {
-      class: 'btn btn-secondary btn-sm',
-      onclick: () => openPlanEditor(month, () => render()),
-    }, '✏️ Editar presupuesto'),
+    el('div', { class: 'debts-filters budget-filters' },
+      ...FILTERS.filter(f => f.key === 'all' || counts.get(f.key) > 0).map(f =>
+        el('button', {
+          class: `chip ${_filter === f.key ? 'chip-active' : ''}`,
+          onclick: () => { _filter = f.key; render(); },
+        }, f.key === 'all' ? f.label : `${f.label} (${counts.get(f.key)})`)),
+    ),
+  );
+}
+
+function _figure(label, amount, cls = '') {
+  return el('div', { class: `budget-income-figure ${cls}` },
+    el('span', { class: 'wizard-total-label' }, label),
+    el('span', { class: 'budget-income-amount' }, formatCurrency(amount)),
   );
 }
 
