@@ -197,9 +197,9 @@ function _setupMonthPicker() {
 
   nextBtn?.addEventListener('click', () => {
     const next = state.getNextMonth(state.currentMonth);
-    // No ir más allá del mes actual
-    const now  = _thisMonth();
-    if (next <= now) {
+    // Hasta un mes por delante del actual (para preparar su presupuesto)
+    const limit = state.getNextMonth(_thisMonth());
+    if (next <= limit) {
       state.setCurrentMonth(next);
       _updateMonthLabel();
       _rerenderActiveView();
