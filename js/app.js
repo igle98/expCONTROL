@@ -224,11 +224,20 @@ function _rerenderActiveView() {
 // =========================================================
 
 function _registerSW() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(err => {
-      console.warn('[SW] No se pudo registrar:', err.message);
-    });
+  if (!('serviceWorker' in navigator)) return;
+
+  // En local no hay caché offline: se quiere ver siempre el código recién editado
+  if (IS_LOCAL) {
+    navigator.serviceWorker.getRegistrations()
+      .then(regs => Promise.all(regs.map(r => r.unregister())))
+      .then(found => { if (found.length) caches.keys().then(keys => keys.forEach(k => caches.delete(k))); })
+      .catch(() => { /* noop */ });
+    return;
   }
+
+  navigator.serviceWorker.register('/sw.js').catch(err => {
+    console.warn('[SW] No se pudo registrar:', err.message);
+  });
 }
 
 // =========================================================
