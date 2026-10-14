@@ -40,6 +40,7 @@ export const SHEETS = {
   INCOME:         'INCOME',
   INCOME_KEYS:    'INCOME_KEYS',
   HUCHAS:         'HUCHAS',
+  MONTH_CLOSE:    'MONTH_CLOSE',
 };
 
 // Índices de columna en TRANSACTIONS (0-based)

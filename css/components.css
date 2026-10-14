@@ -1510,3 +1510,15 @@ option {
 .coverage-deficit { display: flex; flex-direction: column; gap: var(--space-2); }
 .coverage-deficit-head { margin: 0; }
 
+/* Cierre de mes y avisos del asistente */
+.budget-income-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; justify-content: flex-end; }
+.close { display: flex; flex-direction: column; gap: var(--space-4); }
+.close-section { display: flex; flex-direction: column; gap: 2px; }
+.close-closed { margin: 0; padding: var(--space-2) var(--space-3); background: var(--success-dim); color: var(--success); border-radius: var(--radius-sm); font-size: var(--text-sm); }
+.coverage-line.is-bad b { color: var(--danger); }
+.coverage-line.is-good b { color: var(--success); }
+.coverage-line.is-warn b { color: var(--warning); }
+.close-transfer { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3); background: var(--accent-dim); border-radius: var(--radius-md); }
+.close-transfer-title { display: flex; justify-content: space-between; gap: var(--space-2); font-weight: var(--font-semibold); }
+.wizard-warn { font-size: var(--text-xs); color: var(--warning); margin: -2px 0 var(--space-1) 26px; }
+

@@ -136,6 +136,24 @@ Muestra por separado:
 - **Sobrante de imprevistos** → el usuario elige a qué hucha va.
 - **Recordatorio de transferencia** a la cuenta de ahorro (aportaciones − retiradas + sobrantes).
 
+### Implementación
+
+- Presupuesto → **🔒 Cerrar mes** (disponible en cualquier momento para el mes en curso o pasados;
+  no depende de la fecha). Se guarda en la pestaña `MONTH_CLOSE` (`month | closed_at | summary`).
+- La ventana muestra: resumen (ingresos, presupuestado, previsto vs consumido, desviación, pagado
+  con huchas, invertido), pendiente de cubrir, te pasaste / fuera de presupuesto / te sobró,
+  aportaciones a huchas (previstas vs registradas) y pagos con huchas.
+- **Sobrantes**: colchón sin usar (por defecto a FONDO EMERGENCIA) y dinero sin asignar
+  (por defecto no se aparta); cada uno a la hucha elegida.
+- **Transferencia**: lo que queda por mover = aportaciones previstas sin registrar + ahorro libre
+  + sobrantes apartados − gastos pagados con huchas. Las aportaciones ya registradas con
+  "Ya la hice" no cuentan (ya se transfirieron).
+- Al cerrar se registran como aportaciones las previstas pendientes y los sobrantes elegidos.
+  Un mes cerrado muestra el balance del mes con la cuenta de ahorro y puede **reabrirse**
+  (las aportaciones hechas se mantienen).
+- El asistente avisa de **doble presupuesto**: categoría con importe del mes cuya hucha vinculada
+  también recibe aportación ese mes.
+
 ## 7. Migración (fase 0)
 
 Se ejecuta desde una pantalla de la app que muestra todos los cambios antes de aplicarlos.

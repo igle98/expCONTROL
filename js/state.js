@@ -38,6 +38,9 @@ export let huchasSaved = false;
 /** @type {Array<{date:string, month:string, txId:string, source:string, amount:number, kind:string, note:string}>} */
 export let funding = [];
 
+/** @type {Array<{rowIndex:number, month:string, closedAt:string, summary:string}>} */
+export let monthCloses = [];
+
 /** @type {Array} */
 export let budgetHistory = [];
 
@@ -71,6 +74,7 @@ export function setPlanLines(rows)    { planLines = rows; _rebuildBudgets(); }
 export function setIncome(keys, lines) { incomeKeys = keys; incomeLines = lines; }
 export function setHuchas(rows, saved) { huchas = rows; huchasSaved = saved; }
 export function setFunding(rows)      { funding = rows; }
+export function setMonthCloses(rows)  { monthCloses = rows; }
 export function setSheetMeta(meta)    { sheetMeta = meta; }
 export function setBudgetHistory(rows) { budgetHistory = rows; }
 export function setCurrentMonth(m)    { currentMonth = m; }
@@ -503,6 +507,66 @@ export function getLastHuchaForCategory(budgetKey) {
     .filter(f => f.kind === 'retirada' && f.source.startsWith('HUCHA:') && txIds.has(f.txId))
     .sort((a, b) => b.date.localeCompare(a.date))[0];
   return last ? last.source.slice('HUCHA:'.length) : null;
+}
+
+/** Cierre del mes (o null si está abierto) */
+export function getMonthClose(month) {
+  return monthCloses.find(c => c.month === month) ?? null;
+}
+
+/**
+ * Resumen de cierre de un mes: categorías (previsto vs consumido), déficits pendientes,
+ * huchas (aportaciones y retiradas), sobrantes y transferencia neta a la cuenta de ahorro.
+ */
+export function getMonthSummary(month) {
+  const invKeys = getInvestmentKeys();
+  const planned = new Map(getPlanLinesForMonth(month)
+    .filter(l => !l.budgetKey.startsWith('@')).map(l => [l.budgetKey, l.amount]));
+  const keys = new Set([...planned.keys(), ...getSpendByCategory(month).keys()]);
+
+  const categories = [...keys].filter(k => !invKeys.has(k)).map(key => {
+    const st = getCategoryStatus(month, key);
+    return {
+      budgetKey: key, planned: planned.has(key), inicial: st.inicial, ajustado: st.ajustado,
+      gastado: st.gastado, deHucha: st.deHucha, consumido: st.consumido,
+      pendiente: Math.max(0, -st.disponible), sobrante: Math.max(0, st.disponible),
+    };
+  }).filter(c => c.inicial > 0 || c.gastado > 0)
+    .sort((a, b) => (b.consumido - b.ajustado) - (a.consumido - a.ajustado));
+
+  const income = getIncomeForMonth(month).reduce((s, l) => s + l.amount, 0);
+  const sum = (arr, f) => arr.reduce((s, x) => s + f(x), 0);
+  const moves = funding.filter(f => f.month === month && f.source.startsWith('HUCHA:'));
+
+  const huchaPlanned = getPlanLinesForMonth(month)
+    .filter(l => l.budgetKey.startsWith(HUCHA_PREFIX))
+    .map(l => {
+      const name = l.budgetKey.slice(HUCHA_PREFIX.length);
+      return { name, planned: l.amount, done: getHuchaContributed(month, name) };
+    });
+
+  const aportaciones = sum(moves.filter(f => f.kind === 'aportacion'), f => f.amount);
+  const retiradas    = sum(moves.filter(f => f.kind === 'retirada'), f => f.amount);
+
+  return {
+    month,
+    income,
+    plannedTotal: getPlannedTotal(month),
+    categories,
+    inicialTotal:   sum(categories, c => c.inicial),
+    consumidoTotal: sum(categories, c => c.consumido),
+    gastadoTotal:   sum(categories, c => c.gastado),
+    pendienteTotal: sum(categories, c => c.pendiente),
+    invested:       getInvestedTotal(month),
+    reserve:        getReserveStatus(month),
+    unassigned:     getUnassigned(month),
+    savingsFree:    getPlanSpecial(month, '@AHORRO'),
+    huchaPlanned,
+    aportaciones,
+    retiradas,
+    retiradasPorHucha: [...moves.filter(f => f.kind === 'retirada')
+      .reduce((m, f) => m.set(f.source.slice(6), (m.get(f.source.slice(6)) ?? 0) + f.amount), new Map())],
+  };
 }
 
 /** Importe de una línea especial del plan (p.ej. '@IMPREVISTOS') para el mes */

@@ -5,6 +5,7 @@ import { el, show, hide } from '../utils/dom.js';
 import { saveBudgetSnapshot } from '../sheets.js';
 import { isInvestmentCode } from '../utils/categoryCodes.js';
 import { openBudgetWizard, RESERVE_KEY, SAVINGS_KEY } from './budgetWizard.js';
+import { openMonthClose } from './monthClose.js';
 
 let _lastSnapshotMonth = null;
 
@@ -138,10 +139,16 @@ function _renderToolbar(month, isV2, allBudgets) {
           source === month ? `Presupuesto de ${formatMonth(month)}`
             : source ? `Sin presupuesto propio: se usa el de ${formatMonth(source)}`
             : 'Este mes no tiene presupuesto'),
-        el('button', {
-          class: 'btn btn-primary btn-sm',
-          onclick: () => openBudgetWizard(month, () => render()),
-        }, source === month ? '✏️ Editar' : '📝 Preparar'),
+        el('div', { class: 'budget-income-actions' },
+          el('button', {
+            class: 'btn btn-primary btn-sm',
+            onclick: () => openBudgetWizard(month, () => render()),
+          }, source === month ? '✏️ Editar' : '📝 Preparar'),
+          source && month <= _currentMonth() ? el('button', {
+            class: 'btn btn-secondary btn-sm',
+            onclick: () => openMonthClose(month, () => render()),
+          }, state.getMonthClose(month) ? '🔒 Cerrado' : '🔒 Cerrar mes') : null,
+        ),
       ),
       el('div', { class: 'budget-income-figures' },
         _figure('Ingresos', incomeTotal),
@@ -167,6 +174,11 @@ function _renderToolbar(month, isV2, allBudgets) {
         }, f.key === 'all' ? f.label : `${f.label} (${counts.get(f.key)})`)),
     ),
   );
+}
+
+function _currentMonth() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
 function _figure(label, amount, cls = '') {

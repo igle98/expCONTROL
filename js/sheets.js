@@ -7,7 +7,7 @@ import { typeFromCode, isValidCode } from './utils/categoryCodes.js';
 import { getToken } from './auth.js';
 import {
   setTransactions, setAllBudgetKeys, setSheetMeta, setBudgetHistory,
-  setMerchantMap, upsertMerchantMap, setDebts, setFutureItems, setPlanLines, setIncome, setHuchas, setFunding, sheetMeta,
+  setMerchantMap, upsertMerchantMap, setDebts, setFutureItems, setPlanLines, setIncome, setHuchas, setFunding, setMonthCloses, sheetMeta,
 } from './state.js';
 
 // =========================================================
@@ -35,6 +35,7 @@ export async function loadAll() {
     loadIncome(),
     loadHuchas(),
     loadFunding(),
+    loadMonthCloses(),
     loadBudgetHistory(),
     loadMerchantMap(),
     loadDebts(),
@@ -269,6 +270,38 @@ async function _renameFundingSource(from, to) {
     if (i > 0 && String(r[0] ?? '').trim() === from) data.push({ range: `${SHEETS.FUNDING}!D${i + 1}`, values: [[to]] });
   });
   if (data.length) await _batchValuesUpdate(data);
+}
+
+// =========================================================
+// MONTH_CLOSE — meses cerrados
+// =========================================================
+
+const MONTH_CLOSE_HEADER = ['month', 'closed_at', 'summary'];
+
+/** Carga los cierres de mes (vacío si la pestaña aún no existe) */
+export async function loadMonthCloses() {
+  const rows = await _readOptional(`${SHEETS.MONTH_CLOSE}!A:C`) ?? [];
+  setMonthCloses(rows.slice(1)
+    .map((r, i) => ({
+      rowIndex: i + 1,                 // antes de filtrar, para que coincida con la fila real
+      month:    String(r[0] ?? '').trim(),
+      closedAt: String(r[1] ?? '').trim(),
+      summary:  String(r[2] ?? '').trim(),
+    }))
+    .filter(c => /^\d{4}-\d{2}$/.test(c.month)));
+}
+
+/** Marca un mes como cerrado */
+export async function saveMonthClose(month, summary) {
+  await ensureSheet(SHEETS.MONTH_CLOSE, MONTH_CLOSE_HEADER);
+  await appendRows(SHEETS.MONTH_CLOSE, [[month, new Date().toISOString(), summary]]);
+  await loadMonthCloses();
+}
+
+/** Reabre un mes cerrado (borra su marca de cierre; los movimientos hechos se mantienen) */
+export async function deleteMonthClose(rowIndex) {
+  await deleteSheetRows(SHEETS.MONTH_CLOSE, [rowIndex + 1]);
+  await loadMonthCloses();
 }
 
 /** Borra movimientos de FUNDING (por rowIndex: 1 = primera fila de datos) */

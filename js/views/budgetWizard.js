@@ -89,6 +89,7 @@ function _render() {
   );
 
   openModal(`Presupuesto de ${formatMonth(_w.month)}`, body, footer);
+  _refreshWarnings();
 }
 
 function _go(step) {
@@ -267,7 +268,10 @@ function _stepCategories(title, intro, groups) {
     if (items.length === 0) return null;
     return el('div', { class: 'plan-editor-group' },
       el('div', { class: 'cat-group-title' }, label),
-      ...items.map(c => _lineRow(c.budgetKey, c.budgetKey, _hint(c))),
+      ...items.map(c => [
+        _lineRow(c.budgetKey, c.budgetKey, _hint(c)),
+        el('div', { class: 'wizard-warn hidden', 'data-warn-key': c.budgetKey }),
+      ]).flat(),
     );
   });
   return el('div', { class: 'wizard-step' }, _stepIntro(title, intro), ...sections);
@@ -286,6 +290,30 @@ function _hint(c) {
   return parts.join(' · ');
 }
 
+/**
+ * Doble presupuesto: la categoría tiene importe del mes y además alguna de sus huchas
+ * recibe aportación este mes → el mismo gasto se estaría apartando dos veces.
+ */
+function _doubleBudgetWarning(budgetKey) {
+  const line = _w.lines.get(budgetKey);
+  if (!line?.included || !(Number(line.amount) > 0)) return null;
+  const fed = state.getHuchasForCategory(budgetKey).filter(h => {
+    const l = _w.lines.get(`${state.HUCHA_PREFIX}${h.name}`);
+    return l?.included && Number(l.amount) > 0;
+  });
+  if (fed.length === 0) return null;
+  return `⚠️ También aportas a ${fed.map(h => h.name).join(', ')} este mes. Si lo pagarás con la hucha, pon 0 aquí.`;
+}
+
+/** Pinta (o quita) el aviso de doble presupuesto bajo una fila */
+function _refreshWarnings() {
+  for (const node of document.querySelectorAll('.wizard-step [data-warn-key]')) {
+    const text = _doubleBudgetWarning(node.dataset.warnKey);
+    node.textContent = text ?? '';
+    node.classList.toggle('hidden', !text);
+  }
+}
+
 function _stepIntro(title, text) {
   return el('div', { class: 'wizard-intro' },
     el('div', { class: 'wizard-step-title' }, `${_w.step + 1}. ${title}`),
@@ -302,7 +330,7 @@ function _lineRow(key, label, hint) {
   const line = _w.lines.get(key);
   const checkbox = el('input', {
     type: 'checkbox', checked: line.included,
-    onchange: () => { line.included = checkbox.checked; _w.refreshTotals(); },
+    onchange: () => { line.included = checkbox.checked; _w.refreshTotals(); _refreshWarnings(); },
   });
   const input = el('input', {
     class: 'modal-input plan-editor-amount', type: 'number', inputmode: 'decimal', step: '0.01', min: '0',
@@ -311,6 +339,7 @@ function _lineRow(key, label, hint) {
       line.amount = input.value === '' ? 0 : Number(input.value);
       if (input.value !== '' && !line.included) { line.included = true; checkbox.checked = true; }
       _w.refreshTotals();
+      _refreshWarnings();
     },
   });
   return el('label', { class: 'plan-editor-row' },
