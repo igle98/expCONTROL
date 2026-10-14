@@ -1,6 +1,7 @@
 import {
   SPREADSHEET_ID, API_BASE, SHEETS, TX_COL, BK_COL, LEGACY_BK_COL, BH_COL, MM_COL,
   DEBT_COL, FUTURE_COL, PL_COL, IN_COL, DEFAULT_INCOME_KEYS, HUCHA_COL, DEFAULT_HUCHAS, FUND_COL,
+  DEFAULT_HUCHA_CATEGORIES,
 } from './config.js';
 import { typeFromCode, isValidCode } from './utils/categoryCodes.js';
 import { getToken } from './auth.js';
@@ -183,7 +184,7 @@ async function _replaceMonthRows(title, header, month, rows) {
 // HUCHAS y FUNDING — huchas y de dónde sale el dinero de cada gasto
 // =========================================================
 
-const HUCHAS_HEADER  = ['name', 'type', 'status', 'target', 'target_date', 'note'];
+const HUCHAS_HEADER  = ['name', 'type', 'status', 'target', 'target_date', 'note', 'categories'];
 const FUNDING_HEADER = ['date', 'month', 'tx_id', 'source', 'amount', 'kind', 'note'];
 
 async function _readOptional(range) {
@@ -198,19 +199,33 @@ async function _readOptional(range) {
 
 /** Carga HUCHAS (si la pestaña no existe, las de serie sin guardar) */
 export async function loadHuchas() {
-  const rows = await _readOptional(`${SHEETS.HUCHAS}!A:F`);
+  const rows = await _readOptional(`${SHEETS.HUCHAS}!A:G`);
   const huchas = rows === null
-    ? DEFAULT_HUCHAS.map(([name, type, status = 'active']) => ({ name, type, status, target: 0, targetDate: '', note: '', rowIndex: null }))
-    : rows.slice(1).map((r, i) => ({
-        rowIndex:   i + 1,
-        name:       String(r[HUCHA_COL.NAME] ?? '').trim(),
-        type:       String(r[HUCHA_COL.TYPE] ?? '').trim().toLowerCase() === 'provision' ? 'provision' : 'objetivo',
-        status:     String(r[HUCHA_COL.STATUS] ?? '').trim().toLowerCase() || 'active',
-        target:     _parseNumber(r[HUCHA_COL.TARGET]),
-        targetDate: String(r[HUCHA_COL.TARGET_DATE] ?? '').trim(),
-        note:       String(r[HUCHA_COL.NOTE] ?? '').trim(),
-      })).filter(h => h.name);
+    ? DEFAULT_HUCHAS.map(([name, type, status = 'active']) => ({
+        name, type, status, target: 0, targetDate: '', note: '', rowIndex: null, categories: defaultHuchaCategories(name),
+      }))
+    : rows.slice(1).map((r, i) => {
+        const name = String(r[HUCHA_COL.NAME] ?? '').trim();
+        // '-' = sin categorías a propósito; celda vacía = aún no configurada (se usan las de serie)
+        const cats = String(r[HUCHA_COL.CATEGORIES] ?? '').split(',').map(s => s.trim()).filter(c => c && c !== '-');
+        return {
+          rowIndex:   i + 1,
+          name,
+          type:       String(r[HUCHA_COL.TYPE] ?? '').trim().toLowerCase() === 'provision' ? 'provision' : 'objetivo',
+          status:     String(r[HUCHA_COL.STATUS] ?? '').trim().toLowerCase() || 'active',
+          target:     _parseNumber(r[HUCHA_COL.TARGET]),
+          targetDate: String(r[HUCHA_COL.TARGET_DATE] ?? '').trim(),
+          note:       String(r[HUCHA_COL.NOTE] ?? '').trim(),
+          // Sin categorías guardadas aún → las de serie
+          categories: r[HUCHA_COL.CATEGORIES] === undefined ? defaultHuchaCategories(name) : cats,
+        };
+      }).filter(h => h.name);
   setHuchas(huchas, rows !== null);
+}
+
+/** Categorías de serie de una hucha: las de DEFAULT_HUCHA_CATEGORIES o la que se llama igual */
+export function defaultHuchaCategories(name) {
+  return DEFAULT_HUCHA_CATEGORIES[name] ?? [name];
 }
 
 /** Crea la pestaña HUCHAS con las huchas de serie si aún no existe */
@@ -219,7 +234,8 @@ async function _ensureHuchasSheet() {
   await loadSheetMeta();
   if (sheetMeta[SHEETS.HUCHAS] !== undefined) return;
   await ensureSheet(SHEETS.HUCHAS, HUCHAS_HEADER);
-  await appendRows(SHEETS.HUCHAS, DEFAULT_HUCHAS.map(([name, type, status = 'active']) => [name, type, status, '', '', '']));
+  await appendRows(SHEETS.HUCHAS, DEFAULT_HUCHAS.map(([name, type, status = 'active']) =>
+    [name, type, status, '', '', '', defaultHuchaCategories(name).join(',')]));
 }
 
 /**
@@ -230,10 +246,14 @@ async function _ensureHuchasSheet() {
 export async function saveHucha(originalName, h) {
   await _ensureHuchasSheet();
   const rows = await _readOptional(`${SHEETS.HUCHAS}!A:A`) ?? [];
-  const row = [h.name, h.type, h.status || 'active', Number(h.target) || '', h.targetDate || '', h.note || ''];
+  const row = [h.name, h.type, h.status || 'active', Number(h.target) || '', h.targetDate || '', h.note || '',
+               (h.categories ?? []).join(',') || '-'];
   const idx = originalName === null ? -1 : rows.findIndex((r, i) => i > 0 && String(r[0] ?? '').trim() === originalName);
   if (idx > 0) {
-    await _batchValuesUpdate([{ range: `${SHEETS.HUCHAS}!A${idx + 1}:F${idx + 1}`, values: [row] }]);
+    await _batchValuesUpdate([
+      { range: `${SHEETS.HUCHAS}!A1:G1`, values: [HUCHAS_HEADER] },   // por si la pestaña es anterior a 'categories'
+      { range: `${SHEETS.HUCHAS}!A${idx + 1}:G${idx + 1}`, values: [row] },
+    ]);
     if (originalName !== h.name) await _renameFundingSource(`HUCHA:${originalName}`, `HUCHA:${h.name}`);
   } else {
     await appendRows(SHEETS.HUCHAS, [row]);
@@ -249,6 +269,13 @@ async function _renameFundingSource(from, to) {
     if (i > 0 && String(r[0] ?? '').trim() === from) data.push({ range: `${SHEETS.FUNDING}!D${i + 1}`, values: [[to]] });
   });
   if (data.length) await _batchValuesUpdate(data);
+}
+
+/** Borra movimientos de FUNDING (por rowIndex: 1 = primera fila de datos) */
+export async function deleteFunding(rowIndexes) {
+  if (rowIndexes.length === 0) return;
+  await deleteSheetRows(SHEETS.FUNDING, rowIndexes.map(i => i + 1));
+  await loadFunding();
 }
 
 /** Carga FUNDING (movimientos de huchas y coberturas de gastos) */

@@ -174,8 +174,10 @@ export const IN_COL = {
 export const DEFAULT_INCOME_KEYS = ['Nómina', 'Alba', 'Extra nómina', 'Extra propios', 'Cobro de deudas', 'Otros'];
 
 // Índices de columna en HUCHAS (0-based)
-// name | type | status | target | target_date | note
+// name | type | status | target | target_date | note | categories
 // type: objetivo | provision · status: active | archived · target_date: 'YYYY-MM' opcional
+// categories: categorías de gasto que suele pagar, separadas por comas (una hucha puede
+// servir a varias categorías y una categoría tener varias huchas)
 export const HUCHA_COL = {
   NAME:        0,
   TYPE:        1,
@@ -183,6 +185,16 @@ export const HUCHA_COL = {
   TARGET:      3,
   TARGET_DATE: 4,
   NOTE:        5,
+  CATEGORIES:  6,
+};
+
+/** Categorías iniciales de las huchas cuyo nombre no coincide con una categoría */
+export const DEFAULT_HUCHA_CATEGORIES = {
+  CREMAS:      ['CREMA_DIA', 'CREMA_NOCHE', 'CREMA_OJOS', 'CREMA_GRANOS', 'CREMA_SOL', 'NIACINAMIDA', 'JABON_CARA'],
+  SUPLEMENTOS: ['PROTEINA', 'OMEGA3', 'CREATINA', 'MAGNESIO', 'CREMA_ARROZ'],
+  CURSOS:      ['ESTUDIOS'],
+  PC:          ['TECNOLOGÍA'],
+  NAVIDADES:   ['GIFTS'],
 };
 
 // Huchas iniciales (Sheet CLASIFICACION, pestaña HUCHAS, 2026-10-10). Las de inversión

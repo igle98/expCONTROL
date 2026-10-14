@@ -60,7 +60,9 @@ export function render() {
   const variables   = budgets.filter(b => b.type !== 'Fijo');
   const fijos       = budgets.filter(b => b.type === 'Fijo' && !isInvestmentCode(b.code));
 
-  const varSpent    = variables.reduce((s, b) => s + (spendMap.get(b.budgetKey) ?? 0), 0);
+  // En v2 cuenta lo consumido del mes (lo pagado con huchas ya estaba apartado)
+  const consumed    = key => isV2 ? state.getCategoryStatus(month, key).consumido : (spendMap.get(key) ?? 0);
+  const varSpent    = variables.reduce((s, b) => s + consumed(b.budgetKey), 0);
   const varBudget   = variables.reduce((s, b) => s + b.monthlyBudget, 0);
   const fixedSpent  = fijos.reduce((s, b) => s + (spendMap.get(b.budgetKey) ?? 0), 0);
   const fixedBudget = fijos.reduce((s, b) => s + b.fixedAmount, 0);
@@ -103,7 +105,7 @@ export function render() {
     investments.length > 0 ? el('div', { class: 'budget-cards-grid' },
       ...investments.map(b => _fixedCard(b, spendMap.get(b.budgetKey) ?? 0)),
     ) : null,
-    isV2 && _filter === 'all' ? _outOfBudgetCard(budgets, spendMap) : null,
+    isV2 && _filter === 'all' ? _outOfBudgetCard(budgets, month) : null,
   );
 
   container.replaceChildren(varColumn, fixColumn);
@@ -175,7 +177,10 @@ function _figure(label, amount, cls = '') {
 }
 
 /** Gasto del mes en categorías que no están en el presupuesto */
-function _outOfBudgetCard(budgets, spendMap) {
+function _outOfBudgetCard(budgets, month) {
+  // Lo consumido del mes (lo pagado con huchas no cuenta: ya estaba apartado)
+  const spendMap = new Map([...state.getSpendByCategory(month).keys()]
+    .map(key => [key, state.getCategoryStatus(month, key).consumido]));
   const planned = new Set(budgets.map(b => b.budgetKey));
   const invKeys = state.getInvestmentKeys();
   const extra = [...spendMap.entries()]
@@ -224,10 +229,12 @@ function _summaryCard(label, spent, budget, showBar) {
 // Tarjeta Variable (con barra de progreso)
 // =========================================================
 
-function _variableCard(budget, spent, status = null) {
+function _variableCard(budget, totalSpent, status = null) {
   const { budgetKey } = budget;
-  // En v2 el presupuesto que cuenta es el ajustado (inicial ± coberturas)
+  // En v2: presupuesto ajustado (inicial ± dinero del mes movido) frente a lo consumido
+  // del mes; lo pagado con huchas se muestra aparte y no cuenta contra el mes.
   const monthlyBudget = status ? status.ajustado : budget.monthlyBudget;
+  const spent         = status ? status.consumido : totalSpent;
   const pct      = _pct(spent, monthlyBudget);
   const isOver   = pct > 100;
   const cls      = isOver ? 'progress-red' : 'progress-green';
@@ -254,8 +261,16 @@ function _variableCard(budget, spent, status = null) {
       }),
     ),
     el('div', { class: `budget-card-percent ${pctCls}` }, pctLabel),
+    status && status.deHucha > 0 ? el('div', { class: 'budget-card-adjust muted small' }, _huchaNote(status)) : null,
     status && (status.received || status.given) ? el('div', { class: 'budget-card-adjust muted small' }, _adjustNote(status)) : null,
   );
+}
+
+/** "Gastado 60 € · 30 € pagados con hucha GIFTS" */
+function _huchaNote(st) {
+  const huchas = [...st.huchaSources.entries()]
+    .map(([src, amount]) => `${formatCurrency(amount, true)} con hucha ${src.slice('HUCHA:'.length)}`);
+  return `🐷 Gastado ${formatCurrency(st.gastado, true)} · ${huchas.join(' · ')}`;
 }
 
 /** "50 € previstos · +30 € de imprevistos · −10 € cedidos" */

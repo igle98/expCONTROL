@@ -439,26 +439,43 @@ export function getTxCoverage(txId) {
 }
 
 /**
- * Situación de una categoría en un mes:
- * inicial (plan) · ajustado (inicial + coberturas recibidas − dinero cedido a otras)
- * · gastado · disponible (ajustado − gastado).
+ * Situación de una categoría en un mes. Distingue tres cosas:
+ *  - gastado: todo lo gastado (lo que cuentan estadísticas y gráficas)
+ *  - deHucha: la parte pagada con huchas (dinero apartado en meses anteriores)
+ *  - consumido = gastado − deHucha: lo que sale de los ingresos de este mes
+ * y el presupuesto del mes:
+ *  - inicial (plan) · ajustado = inicial + dinero del mes recibido (colchón, sin asignar,
+ *    otras categorías) − lo cedido a otras categorías. Las huchas NO amplían el presupuesto.
+ *  - disponible = ajustado − consumido
  */
 export function getCategoryStatus(month, budgetKey) {
   const inicial = getPlanLinesForMonth(month).find(l => l.budgetKey === budgetKey)?.amount ?? 0;
   const txIds = new Set(transactions.filter(t => t.month === month && t.budgetKey === budgetKey).map(t => t.txId));
-  let received = 0, given = 0;
-  const sources = new Map();
+  let received = 0, given = 0, deHucha = 0;
+  const sources = new Map();       // dinero del mes recibido, por fuente
+  const huchaSources = new Map();  // pagado con huchas, por hucha
   for (const f of funding) {
     if (f.month !== month) continue;
     if (f.kind === 'cobertura' && f.source === `CAT:${budgetKey}`) given += f.amount;
-    if ((f.kind === 'cobertura' || f.kind === 'retirada') && f.txId && txIds.has(f.txId)) {
+    if (!f.txId || !txIds.has(f.txId)) continue;
+    if (f.kind === 'retirada') {
+      deHucha += f.amount;
+      huchaSources.set(f.source, (huchaSources.get(f.source) ?? 0) + f.amount);
+    } else if (f.kind === 'cobertura') {
       received += f.amount;
       sources.set(f.source, (sources.get(f.source) ?? 0) + f.amount);
     }
   }
-  const gastado = getSpendByMonthAndKey(month, budgetKey);
-  const ajustado = inicial + received - given;
-  return { inicial, ajustado, gastado, disponible: ajustado - gastado, received, given, sources };
+  const gastado   = getSpendByMonthAndKey(month, budgetKey);
+  const consumido = gastado - deHucha;
+  const ajustado  = inicial + received - given;
+  return { inicial, ajustado, gastado, deHucha, consumido, disponible: ajustado - consumido,
+           received, given, sources, huchaSources };
+}
+
+/** Huchas activas vinculadas a una categoría de gasto */
+export function getHuchasForCategory(budgetKey) {
+  return huchas.filter(h => h.status === 'active' && h.categories?.includes(budgetKey));
 }
 
 /** Colchón de imprevistos del mes: previsto, usado y lo que queda */

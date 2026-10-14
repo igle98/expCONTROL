@@ -77,6 +77,31 @@ Cada categoría tiene un código de tres letras:
 - Vista Presupuesto: las variables muestran el presupuesto **ajustado** y de dónde vino
   ("100 € previstos · +30 € de GASOLINA"); arriba, lo que queda del colchón.
 
+### Gastado, pagado con hucha y consumido del mes
+
+Por categoría y mes se distinguen:
+
+| Concepto | Qué es |
+|---|---|
+| **Gastado** | Todo lo gastado. Es lo que cuentan estadísticas y gráficas. |
+| **Pagado con hucha** | Parte pagada con dinero apartado en meses anteriores. |
+| **Consumido del mes** | Gastado − pagado con hucha: lo que sale de los ingresos de este mes. |
+| **Presupuesto ajustado** | Plan + dinero **del mes** movido (colchón, sin asignar, otras categorías). Las huchas **no** lo amplían. |
+| **Disponible** | Ajustado − consumido. |
+
+Ejemplo: GIFTS con 75 € de plan, gasto de 60 € pagando 30 € con la hucha GIFTS →
+consumido 30 € de 75 € (40 %), hucha −30 €.
+
+**Huchas ↔ categorías** es una relación varios-a-varios: cada hucha guarda la lista de
+categorías de gasto que suele pagar (columna `categories` de HUCHAS; `-` = ninguna a propósito).
+Una categoría puede tener varias huchas (TECNOLOGÍA ← PC, WATCH…). Se usa para:
+- el asistente: cada categoría muestra el saldo de sus huchas, para presupuestar del mes solo
+  lo que no vayan a cubrir;
+- al pagar: las vinculadas salen primero (★); se puede elegir cualquier otra.
+
+La financiación de un gasto se puede ver, ampliar o quitar después desde la lista de gastos
+(Editar gasto → Financiación).
+
 ## 5. Cobertura de gastos (regla central)
 
 **Registrar siempre el gasto; ampliar el presupuesto ajustado solo por el importe cubierto por una

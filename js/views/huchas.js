@@ -155,10 +155,27 @@ function _openEdit(h) {
   const date = el('input', { class: 'modal-input', type: 'month', value: h?.targetDate ?? '' });
   const active = el('input', { type: 'checkbox', checked: (h?.status ?? 'active') === 'active' });
 
+  // Categorías de gasto que suele pagar (una hucha puede servir a varias)
+  const linked = new Set(h?.categories ?? []);
+  const chips = el('div', { class: 'hucha-cats' });
+  const drawChips = () => chips.replaceChildren(...[...linked].sort().map(k =>
+    el('button', { type: 'button', class: 'chip chip-active', title: 'Quitar',
+      onclick: () => { linked.delete(k); drawChips(); } }, `${k} ✕`)));
+  drawChips();
+  const addCat = el('select', {
+    class: 'modal-select',
+    onchange: (e) => { if (e.target.value) { linked.add(e.target.value); e.target.value = ''; drawChips(); } },
+  },
+    el('option', { value: '' }, '+ Añadir categoría…'),
+    ...state.allBudgetKeys.filter(c => c.status === 'active' && c.allowsHucha)
+      .sort((a, b) => a.budgetKey.localeCompare(b.budgetKey))
+      .map(c => el('option', { value: c.budgetKey }, c.budgetKey)));
+
   const body = el('div', { class: 'cat-form' },
     _inputGroup('Nombre', name),
     _inputGroup('Tipo', type),
     el('div', { class: 'cat-form-fields cat-form-row' }, _inputGroup('Objetivo (€)', target), _inputGroup('Para (mes)', date)),
+    _inputGroup('Categorías de gasto que paga', el('div', { class: 'hucha-cats-wrap' }, chips, addCat)),
     el('label', { class: 'cat-active' }, active, el('span', {}, 'Activa (desmárcala para archivarla; conserva su historial)')),
   );
   const footer = el('div', { style: { display: 'contents' } },
@@ -174,6 +191,7 @@ function _openEdit(h) {
         await _run('Guardando hucha…', () => sheets.saveHucha(h?.name ?? null, {
           name: n, type: type.value, status: active.checked ? 'active' : 'archived',
           target: Number(target.value) || 0, targetDate: date.value, note: h?.note ?? '',
+          categories: [...linked],
         }), h ? 'Hucha actualizada' : `Hucha ${n} creada`);
       },
     }, 'Guardar'),

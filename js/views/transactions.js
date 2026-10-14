@@ -3,6 +3,7 @@ import * as sheets  from '../sheets.js';
 import { getCategoryColor, getCategoryColorAlpha } from '../utils/colors.js';
 import { formatCurrency, formatDateShort, formatDateLong } from '../utils/formatters.js';
 import { el, openModal, closeModal, showToast, setLoading, show, hide } from '../utils/dom.js';
+import { openCoverageForTx } from './coverage.js';
 
 // =========================================================
 // Render principal
@@ -181,6 +182,20 @@ export function openEditModal(tx) {
       ),
     ),
   );
+
+  // Financiación (presupuesto v2): de dónde salió el dinero
+  const coverage = state.catalogFormat === 'v2' ? state.getTxCoverage(tx.txId) : [];
+  if (state.catalogFormat === 'v2' && tx.txId) {
+    body.appendChild(el('div', { class: 'input-group' },
+      el('label', { class: 'input-label' }, 'Financiación'),
+      el('button', {
+        type: 'button', class: 'btn btn-secondary btn-sm',
+        onclick: () => openCoverageForTx(tx, () => render()),
+      }, coverage.length
+        ? `💶 ${formatCurrency(coverage.reduce((s, f) => s + f.amount, 0))} de otras fuentes · ver / cambiar`
+        : '💶 Del mes · cambiar de dónde salió'),
+    ));
+  }
 
   // Pie del modal
   const footer = el('div', { style: { display: 'contents' } },

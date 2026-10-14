@@ -275,8 +275,15 @@ function _stepCategories(title, intro, groups) {
 
 /** Pista bajo cada categoría: lo gastado el mes anterior */
 function _hint(c) {
+  const parts = [];
   const spent = state.getSpendByMonthAndKey(_w.prevMonth, c.budgetKey);
-  return spent > 0 ? `${formatMonth(_w.prevMonth).split(' ')[0]}: ${formatCurrency(spent, true)}` : '';
+  if (spent > 0) parts.push(`${formatMonth(_w.prevMonth).split(' ')[0]}: ${formatCurrency(spent, true)}`);
+  // Huchas vinculadas con saldo: lo que cubran no hace falta presupuestarlo del mes
+  const huchas = state.getHuchasForCategory(c.budgetKey)
+    .map(h => ({ name: h.name, balance: state.getHuchaBalance(h.name) }))
+    .filter(h => h.balance > 0);
+  if (huchas.length) parts.push(`🐷 ${huchas.map(h => `${h.name} ${formatCurrency(h.balance, true)}`).join(' · ')}`);
+  return parts.join(' · ');
 }
 
 function _stepIntro(title, text) {
