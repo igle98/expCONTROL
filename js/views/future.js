@@ -7,6 +7,7 @@ import * as state  from '../state.js';
 import * as sheets from '../sheets.js';
 import { el, openModal, closeModal, showToast, setLoading } from '../utils/dom.js';
 import { formatCurrency, formatDateShort, formatMonth } from '../utils/formatters.js';
+import { isInvestmentCode } from '../utils/categoryCodes.js';
 
 const ROOT_ID = 'future-section';
 
@@ -145,6 +146,7 @@ function _renderItem(f) {
         el('span', { class: `future-badge future-priority-${f.priority}` }, _label(PRIORITIES, f.priority)),
         el('span', { class: `future-badge future-badge-${f.status}` }, _label(STATUSES, f.status)),
         f.date.length === 10 ? el('span', {}, formatDateShort(f.date)) : null,
+        f.budgetKey ? el('span', { class: 'future-badge' }, f.budgetKey) : null,
         isOverdue ? el('span', { class: 'future-overdue-label' }, '· atrasado') : null,
       ),
     ),
@@ -190,6 +192,7 @@ function _formBody(f = null) {
         min: '1', max: '31', placeholder: '—', value: day,
       })),
     ),
+    _categoryPicker(f?.budgetKey ?? ''),
     _inputGroup('future-priority', 'Prioridad',
       _select('future-priority', PRIORITIES, f?.priority ?? 'medium')),
     _inputGroup('future-status', 'Estado',
@@ -211,6 +214,7 @@ function _readForm() {
   const priority = document.getElementById('future-priority')?.value || 'medium';
   const status   = document.getElementById('future-status')?.value || 'wanted';
   const notes    = document.getElementById('future-notes')?.value?.trim() ?? '';
+  const budgetKey = document.getElementById('future-category')?.value ?? '';
 
   if (!concept) { showToast('Indica el concepto', 'error'); return null; }
   if (isNaN(amount) || amount <= 0) { showToast('Importe inválido', 'error'); return null; }
@@ -228,7 +232,7 @@ function _readForm() {
     date = `${month}-${String(day).padStart(2, '0')}`;
   }
 
-  return { concept, amount, date, priority, status, notes };
+  return { concept, amount, date, priority, status, notes, budgetKey };
 }
 
 // =========================================================
@@ -326,6 +330,51 @@ async function _doDelete(f) {
 // =========================================================
 // Helpers
 // =========================================================
+
+/**
+ * Selector de categoría con filtros: Necesario/Electivo y Fijo/Variable
+ * (por el código de la categoría: N/E primera letra, C/V última).
+ */
+function _categoryPicker(selected) {
+  const filters = { need: '', kind: '' };   // need: 'N' | 'E' · kind: 'C' | 'V'
+  const cats = state.allBudgetKeys
+    .filter(c => (c.status === 'active' || c.budgetKey === selected) && c.code && !isInvestmentCode(c.code))
+    .sort((a, b) => a.budgetKey.localeCompare(b.budgetKey));
+
+  const select = el('select', { id: 'future-category', class: 'modal-select' });
+  const fill = () => {
+    const current = select.value || selected;
+    const list = cats.filter(c =>
+      (!filters.need || c.code[0] === filters.need) && (!filters.kind || c.code[2] === filters.kind));
+    select.replaceChildren(
+      el('option', { value: '' }, '— Sin categoría —'),
+      ...list.map(c => el('option', { value: c.budgetKey, selected: c.budgetKey === current }, `${c.budgetKey} · ${c.code}`)),
+    );
+  };
+  const chipGroup = (key, options) => el('div', { class: 'future-cat-filter' },
+    ...options.map(([value, label]) => {
+      const chip = el('button', {
+        type: 'button', class: 'chip',
+        onclick: () => {
+          filters[key] = filters[key] === value ? '' : value;
+          chip.parentElement.querySelectorAll('.chip').forEach(c => c.classList.remove('chip-active'));
+          if (filters[key]) chip.classList.add('chip-active');
+          fill();
+        },
+      }, label);
+      return chip;
+    }));
+  fill();
+
+  return el('div', { class: 'input-group' },
+    el('label', { class: 'input-label', for: 'future-category' }, 'Categoría (opcional)'),
+    el('div', { class: 'future-cat-filters' },
+      chipGroup('need', [['N', 'Necesario'], ['E', 'Electivo']]),
+      chipGroup('kind', [['C', 'Fijo'], ['V', 'Variable']]),
+    ),
+    select,
+  );
+}
 
 function _inputGroup(id, label, input) {
   return el('div', { class: 'input-group' },

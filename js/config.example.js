@@ -126,8 +126,9 @@ export const DEBT_COL = {
 };
 
 // Índices de columna en FUTURE (0-based) — compras y pagos futuros
-// id | concept | amount | date | priority | status | notes | date_updated
+// id | concept | amount | date | priority | status | notes | date_updated | budget_key
 // `date` puede ser un mes ('YYYY-MM') o un día concreto ('YYYY-MM-DD').
+// `budget_key`: categoría de gasto (opcional) en la que caerá la compra.
 export const FUTURE_COL = {
   ID:           0,
   CONCEPT:      1,
@@ -137,6 +138,7 @@ export const FUTURE_COL = {
   STATUS:       5,
   NOTES:        6,
   DATE_UPDATED: 7,
+  BUDGET_KEY:   8,
 };
 
 // Índices de columna en PLAN_LINES (0-based) — lo presupuestado por categoría y mes

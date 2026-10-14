@@ -1335,13 +1335,6 @@ option {
     margin-top: 0;
   }
 
-  /* Reportes: contenido a 2 columnas cuando hay tarjetas */
-  #reports-content {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--space-4);
-  }
-
   /* Transactions list más legible (más padding lateral) */
   .view {
     padding: var(--space-5) var(--space-6);
@@ -1525,4 +1518,11 @@ option {
 .close-alloc-list { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-1); }
 .close-alloc-row { display: grid; grid-template-columns: 1fr 6.5rem auto; gap: var(--space-2); align-items: center; }
 .close-alloc-info { display: flex; flex-direction: column; gap: 2px; margin-top: var(--space-1); }
+
+/* Pestaña Dinero */
+.money-tabs { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); }
+.money-tabs .chip { font-size: var(--text-sm); padding: var(--space-2) var(--space-3); }
+#view-money .debts-section { margin-top: 0; }
+.future-cat-filters { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-bottom: var(--space-2); }
+.future-cat-filter { display: flex; gap: var(--space-1); }
 

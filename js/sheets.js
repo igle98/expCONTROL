@@ -1118,11 +1118,11 @@ export async function deleteDebt(rowIndex, sheetId) {
 // FUTURE — compras y pagos futuros
 // =========================================================
 
-const FUTURE_HEADER = ['id', 'concept', 'amount', 'date', 'priority', 'status', 'notes', 'date_updated'];
+const FUTURE_HEADER = ['id', 'concept', 'amount', 'date', 'priority', 'status', 'notes', 'date_updated', 'budget_key'];
 
 /** Carga FUTURE completo y actualiza state */
 export async function loadFuture() {
-  const range = `${SHEETS.FUTURE}!A:H`;
+  const range = `${SHEETS.FUTURE}!A:I`;
   let data;
   try {
     data = await _apiFetch(
@@ -1151,6 +1151,7 @@ export async function loadFuture() {
       status:      String(row[FUTURE_COL.STATUS]   ?? 'wanted').trim().toLowerCase() || 'wanted',
       notes:       String(row[FUTURE_COL.NOTES]    ?? '').trim(),
       dateUpdated: _parseDate(row[FUTURE_COL.DATE_UPDATED]),
+      budgetKey:   String(row[FUTURE_COL.BUDGET_KEY] ?? '').trim(),
     });
   }
   setFutureItems(items);
@@ -1174,8 +1175,12 @@ export async function appendFuture(item) {
     item.status,
     item.notes || '',
     item.dateUpdated,
+    item.budgetKey || '',
   ];
-  const appendRange = `${SHEETS.FUTURE}!A:H`;
+  if (item.budgetKey) {   // pestañas creadas antes de existir 'budget_key': completar la cabecera
+    await _batchValuesUpdate([{ range: `${SHEETS.FUTURE}!I1`, values: [['budget_key']] }]);
+  }
+  const appendRange = `${SHEETS.FUTURE}!A:I`;
   await _apiFetch(
     `${API_BASE}/${SPREADSHEET_ID}/values/${encodeURIComponent(appendRange)}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
     { method: 'POST', body: JSON.stringify({ values: [row] }) }
@@ -1190,11 +1195,15 @@ export async function appendFuture(item) {
  */
 export async function updateFuture(rowIndex, fields) {
   const sheetRow = rowIndex + 1;
-  // B concept, C amount, D date, E priority, F status, G notes, H date_updated
+  // B concept, C amount, D date, E priority, F status, G notes, H date_updated, I budget_key
   const cols = {
     concept: 'B', amount: 'C', date: 'D', priority: 'E',
-    status: 'F', notes: 'G', dateUpdated: 'H',
+    status: 'F', notes: 'G', dateUpdated: 'H', budgetKey: 'I',
   };
+  // Pestañas creadas antes de existir 'budget_key': completar la cabecera
+  if (fields.budgetKey !== undefined) {
+    await _batchValuesUpdate([{ range: `${SHEETS.FUTURE}!I1`, values: [['budget_key']] }]);
+  }
   const data = [];
   for (const [key, col] of Object.entries(cols)) {
     if (fields[key] === undefined) continue;
@@ -1260,7 +1269,7 @@ async function _ensureFutureSheet() {
     }
   );
   await _apiFetch(
-    `${API_BASE}/${SPREADSHEET_ID}/values/${encodeURIComponent(`${SHEETS.FUTURE}!A1:H1`)}?valueInputOption=RAW`,
+    `${API_BASE}/${SPREADSHEET_ID}/values/${encodeURIComponent(`${SHEETS.FUTURE}!A1:I1`)}?valueInputOption=RAW`,
     { method: 'PUT', body: JSON.stringify({ values: [FUTURE_HEADER] }) }
   );
   await loadSheetMeta();

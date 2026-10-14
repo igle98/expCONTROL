@@ -12,7 +12,7 @@ import { IS_LOCAL } from './config.js';
 
 import * as viewTransactions from './views/transactions.js';
 import * as viewBudgets      from './views/budgets.js';
-import * as viewReports      from './views/reports.js';
+import * as viewMoney        from './views/money.js';
 import * as viewCharts       from './views/charts.js';
 import * as viewAddExpense   from './views/addExpense.js';
 import * as viewSettings     from './views/settings.js';
@@ -113,7 +113,7 @@ function _setupSignOut() {
 const VIEW_TITLES = {
   transactions:  'Transacciones',
   budgets:       'Presupuesto',
-  reports:       'Reportes',
+  money:         'Dinero',
   charts:        'Gráficas',
   'add-expense': 'Añadir gasto',
   settings:      'Ajustes',
@@ -160,7 +160,7 @@ function _renderView(viewName) {
   switch (viewName) {
     case 'transactions': viewTransactions.render(); break;
     case 'budgets':      viewBudgets.render();      break;
-    case 'reports':      viewReports.render();      break;
+    case 'money':        viewMoney.render();        break;
     case 'charts':       viewCharts.render();       break;
     case 'add-expense':  viewAddExpense.render();   break;
     case 'settings':     viewSettings.render();     break;
