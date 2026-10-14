@@ -53,152 +53,163 @@ function _context(tx) {
 function _open(tx, ctx, onDone, manual) {
   const { cat, status, existing, uncovered, shortfall } = ctx;
   const elective = isElectiveCode(cat.code);
-  // Con déficit: cubrir lo que falta. Sin déficit: pago opcional con hucha de lo no cubierto aún.
-  const target = shortfall > 0 ? shortfall : uncovered;
-  const rows = [];                                        // { input, max, source }
-  const footerInfo = el('div', { class: 'coverage-summary' });
+  // Lo que cabía en el presupuesto del mes de la categoría antes de este gasto
+  const fitsInBudget = _round(uncovered - shortfall);
+  const activeHuchas = state.huchas.filter(h => h.status === 'active');
+  const canHucha = (cat.allowsHucha || cat.code[0] === 'N') && activeHuchas.length > 0;
+
+  let hucha = null;             // { input, max, source } — paga parte o todo el gasto
+  const monthRows = [];         // fuentes del mes para el déficit: { input, max, source }
+  const H = () => hucha ? (Number(hucha.input.value) || 0) : 0;
+  const M = () => monthRows.reduce((s, r) => s + (Number(r.input.value) || 0), 0);
+  // Déficit: lo que no cabe en el presupuesto de la categoría tras usar la hucha
+  const deficit = () => _round(Math.max(0, shortfall - H()));
+
+  const breakdown = el('div', { class: 'coverage-breakdown' });
+  const deficitBlock = el('div', { class: 'coverage-deficit' });
+  const deficitHead = el('p', { class: 'coverage-deficit-head' });
 
   const refresh = () => {
-    const covered = rows.reduce((s, r) => s + (Number(r.input.value) || 0), 0);
-    const pending = _round(target - covered);
-    footerInfo.replaceChildren(...[      // replaceChildren pintaría los null como texto
-      el('span', {}, `Cubierto ${formatCurrency(covered)} de ${formatCurrency(target)}`),
-      shortfall > 0
-        ? el('span', { class: pending > 0 ? 'coverage-pending' : 'coverage-ok' },
-            pending > 0 ? ` · quedan ${formatCurrency(pending)} pendientes` : ' · cubierto ✓')
-        : null,
+    const h = Math.min(H(), uncovered);
+    const fromBudget = _round(Math.min(uncovered - h, fitsInBudget));
+    const d = deficit();
+    const pending = _round(Math.max(0, d - M()));
+    breakdown.replaceChildren(...[
+      canHucha ? _line('🐷 De hucha', h) : null,
+      _line(`📅 Del presupuesto de ${tx.budgetKey}`, fromBudget,
+        `te quedaban ${formatCurrency(Math.max(0, fitsInBudget), true)}`),
+      d > 0 ? _line('➕ Otras fuentes del mes', Math.min(M(), d)) : null,
+      d > 0 && pending > 0 ? _line('⏳ Pendiente de cubrir', pending, null, 'coverage-pending') : null,
     ].filter(Boolean));
+    deficitBlock.classList.toggle('hidden', d <= 0);
+    deficitHead.replaceChildren('Te faltan ', el('b', {}, formatCurrency(d)), ' del mes. ¿De dónde salen?');
   };
 
-  const amountInput = (max) => {
-    const input = el('input', {
-      class: 'modal-input plan-editor-amount', type: 'number', inputmode: 'decimal',
-      step: '0.01', min: '0', max: String(max), placeholder: '0', oninput: refresh,
-    });
-    return input;
-  };
+  const amountInput = () => el('input', {
+    class: 'modal-input plan-editor-amount', type: 'number', inputmode: 'decimal',
+    step: '0.01', min: '0', placeholder: '0', oninput: refresh,
+  });
 
-  const useButton = (input, max) => el('button', {
-    type: 'button', class: 'btn btn-secondary btn-sm',
-    onclick: () => {
-      const others = rows.filter(r => r.input !== input).reduce((s, r) => s + (Number(r.input.value) || 0), 0);
-      input.value = String(_round(Math.max(0, Math.min(max(), target - others))));
-      refresh();
+  // ---------- Hucha: hasta el gasto entero
+  const huchaNode = (() => {
+    if (!canHucha) return null;
+    const linked = state.getHuchasForCategory(tx.budgetKey)
+      .sort((a, b) => state.getHuchaBalance(b.name) - state.getHuchaBalance(a.name));
+    const linkedNames = new Set(linked.map(h => h.name));
+    // Preselección: la última usada con esta categoría o, si no, la vinculada con más saldo
+    const last = state.getLastHuchaForCategory(tx.budgetKey) ?? linked[0]?.name ?? null;
+    let type = activeHuchas.find(h => h.name === last)?.type ?? (cat.code[0] === 'N' ? 'provision' : 'objetivo');
+
+    const huchaSelect = el('select', { class: 'modal-select', onchange: refresh });
+    const balanceOf = () => Math.max(0, state.getHuchaBalance(huchaSelect.value));
+    const fillHuchas = () => {
+      const list = activeHuchas.filter(h => h.type === type)     // las vinculadas primero
+        .sort((a, b) => Number(linkedNames.has(b.name)) - Number(linkedNames.has(a.name)));
+      huchaSelect.replaceChildren(...list.map(h =>
+        el('option', { value: h.name, selected: h.name === last },
+          `${linkedNames.has(h.name) ? '★ ' : ''}${h.name} (${formatCurrency(state.getHuchaBalance(h.name), true)})`)));
+    };
+    const typeSelect = el('select', {
+      class: 'modal-select',
+      onchange: (e) => { type = e.target.value; fillHuchas(); refresh(); },
     },
-  }, 'Usar');
+      el('option', { value: 'provision', selected: type === 'provision' }, 'Provisión'),
+      el('option', { value: 'objetivo',  selected: type === 'objetivo'  }, 'Objetivo'),
+    );
+    fillHuchas();
+    const input = amountInput();
+    const max = () => Math.min(balanceOf(), uncovered);
+    hucha = { input, max, source: () => ({ source: `HUCHA:${huchaSelect.value}`, kind: 'retirada' }) };
+    const use = el('button', {
+      type: 'button', class: 'btn btn-secondary btn-sm',
+      onclick: () => { input.value = String(_round(max())); refresh(); },
+    }, 'Todo lo posible');
+    return _sourceRow('🐷 ¿Cuánto pagas con hucha?',
+      'Dinero que ya tenías apartado: no cuenta contra el presupuesto del mes.',
+      el('div', { class: 'coverage-hucha-pick' }, typeSelect, huchaSelect), input, use);
+  })();
 
-  // ---------- Fuentes
-  const sources = {
-    hucha: () => {
-      if (!cat.allowsHucha && cat.code[0] !== 'N') return null;
-      const active = state.huchas.filter(h => h.status === 'active');
-      if (active.length === 0) return null;
-      // Preselección: la última usada con esta categoría o, si no, la vinculada con más saldo
-      const linked = state.getHuchasForCategory(tx.budgetKey)
-        .sort((a, b) => state.getHuchaBalance(b.name) - state.getHuchaBalance(a.name));
-      const linkedNames = new Set(linked.map(h => h.name));
-      const last = state.getLastHuchaForCategory(tx.budgetKey) ?? linked[0]?.name ?? null;
-      const lastType = active.find(h => h.name === last)?.type;
-      let type = lastType ?? (cat.code[0] === 'N' ? 'provision' : 'objetivo');
-
-      const huchaSelect = el('select', { class: 'modal-select', onchange: () => { input.max = String(balanceOf()); refresh(); } });
-      const balanceOf = () => Math.max(0, state.getHuchaBalance(huchaSelect.value));
-      const fillHuchas = () => {
-        // Las vinculadas a la categoría primero
-        const list = active.filter(h => h.type === type)
-          .sort((a, b) => Number(linkedNames.has(b.name)) - Number(linkedNames.has(a.name)));
-        huchaSelect.replaceChildren(...list.map(h =>
-          el('option', { value: h.name, selected: h.name === last },
-            `${linkedNames.has(h.name) ? '★ ' : ''}${h.name} (${formatCurrency(state.getHuchaBalance(h.name), true)})`)));
-      };
-      const typeSelect = el('select', {
-        class: 'modal-select',
-        onchange: (e) => { type = e.target.value; fillHuchas(); refresh(); },
+  // ---------- Fuentes del mes para el déficit
+  const monthSource = (title, help, picker, max, source) => {
+    const input = amountInput();
+    monthRows.push({ input, max, source });
+    const use = el('button', {
+      type: 'button', class: 'btn btn-secondary btn-sm',
+      onclick: () => {
+        const others = monthRows.filter(r => r.input !== input).reduce((s, r) => s + (Number(r.input.value) || 0), 0);
+        input.value = String(_round(Math.max(0, Math.min(max(), deficit() - others))));
+        refresh();
       },
-        el('option', { value: 'provision', selected: type === 'provision' }, 'Provisión'),
-        el('option', { value: 'objetivo',  selected: type === 'objetivo'  }, 'Objetivo'),
-      );
-      fillHuchas();
-      const input = amountInput(balanceOf());
-      rows.push({ input, max: balanceOf, source: () => ({ source: `HUCHA:${huchaSelect.value}`, kind: 'retirada' }) });
-      return _sourceRow('🐷 Hucha', 'Sale de lo ahorrado para esto.',
-        el('div', { class: 'coverage-hucha-pick' }, typeSelect, huchaSelect), input, useButton(input, balanceOf));
-    },
+    }, 'Usar');
+    return _sourceRow(title, help, picker, input, use);
+  };
 
+  const monthSources = {
     move: () => {
-      if (shortfall <= 0) return null;
       const options = state.getBudgetKeysForMonth(tx.month)
         .filter(b => b.budgetKey !== tx.budgetKey)
         .map(b => ({ key: b.budgetKey, left: state.getCategoryStatus(tx.month, b.budgetKey).disponible }))
         .filter(o => o.left > 0)
         .sort((a, b) => b.left - a.left);
       if (options.length === 0) return null;
-      const select = el('select', { class: 'modal-select', onchange: () => { input.max = String(maxOf()); refresh(); } },
+      const select = el('select', { class: 'modal-select', onchange: refresh },
         el('option', { value: '' }, 'Elige de qué categoría…'),
         ...options.map(o => el('option', { value: o.key }, `${o.key} (le quedan ${formatCurrency(o.left, true)})`)));
-      const maxOf = () => options.find(o => o.key === select.value)?.left ?? 0;
-      const input = amountInput(0);
-      rows.push({ input, max: maxOf, source: () => select.value ? { source: `CAT:${select.value}`, kind: 'cobertura' } : null });
-      return _sourceRow('↔️ Mover de otra categoría', 'Le quitas a otra lo que no vas a gastar. Tú eliges cuál.',
-        select, input, useButton(input, maxOf));
+      return monthSource('↔️ Mover de otra categoría', 'Le quitas a otra lo que no vas a gastar. Tú eliges cuál.',
+        select, () => options.find(o => o.key === select.value)?.left ?? 0,
+        () => select.value ? { source: `CAT:${select.value}`, kind: 'cobertura' } : null);
     },
-
     unassigned: () => {
-      if (shortfall <= 0) return null;
       const free = state.getUnassigned(tx.month);
       if (free <= 0) return null;
-      const input = amountInput(free);
-      rows.push({ input, max: () => free, source: () => ({ source: 'SIN_ASIGNAR', kind: 'cobertura' }) });
-      return _sourceRow('💶 Dinero sin asignar', `Te quedan ${formatCurrency(free)} de este mes sin presupuestar.`,
-        null, input, useButton(input, () => free));
+      return monthSource('💶 Dinero sin asignar', `Te quedan ${formatCurrency(free)} de este mes sin presupuestar.`,
+        null, () => free, () => ({ source: 'SIN_ASIGNAR', kind: 'cobertura' }));
     },
-
     reserve: () => {
-      if (shortfall <= 0) return null;
       const { remaining } = state.getReserveStatus(tx.month);
       if (remaining <= 0) return null;
-      const input = amountInput(remaining);
-      rows.push({ input, max: () => remaining, source: () => ({ source: 'IMPREVISTOS', kind: 'cobertura' }) });
-      return _sourceRow('🛟 Colchón de imprevistos', `Quedan ${formatCurrency(remaining)}.` +
+      return monthSource('🛟 Colchón de imprevistos', `Quedan ${formatCurrency(remaining)}.` +
         (elective ? ' Es un gasto electivo: úsalo solo si de verdad es una urgencia.' : ''),
-        null, input, useButton(input, () => remaining));
+        null, () => remaining, () => ({ source: 'IMPREVISTOS', kind: 'cobertura' }));
     },
   };
+  // En electivos el colchón va siempre el último y nunca viene marcado
+  const order = elective ? ['move', 'unassigned', 'reserve'] : ['reserve', 'move', 'unassigned'];
+  const monthNodes = shortfall > 0 ? order.map(k => monthSources[k]()).filter(Boolean) : [];
+  deficitBlock.append(...[
+    deficitHead,
+    elective ? el('p', { class: 'muted small' }, 'Antes de tirar del colchón, decide qué otro gasto sacrificas.') : null,
+    ...(monthNodes.length ? monthNodes : [el('p', { class: 'muted small' }, 'No hay ninguna fuente del mes disponible: quedará pendiente.')]),
+  ].filter(Boolean));
 
-  // Orden: en electivos el colchón va siempre el último y nunca viene marcado
-  const order = elective
-    ? ['move', 'unassigned', 'hucha', 'reserve']
-    : ['hucha', 'reserve', 'move', 'unassigned'];
-  const sourceNodes = order.map(k => sources[k]()).filter(Boolean);
+  const head = el('p', {}, el('b', {}, `${tx.description || tx.budgetKey} · ${formatCurrency(tx.amount)}`),
+    ` en ${tx.budgetKey}.`,
+    uncovered <= 0 ? ' Ya está cubierto del todo.' : '');
 
-  const head = shortfall > 0
-    ? el('p', {}, 'Te pasas ', el('b', {}, formatCurrency(shortfall)), ` en ${tx.budgetKey}`,
-        ` (presupuesto del mes ${formatCurrency(status.ajustado)}, consumido ${formatCurrency(status.consumido)}). ¿De dónde sale?`)
-    : target > 0
-      ? el('p', {}, `${formatCurrency(tx.amount)} en ${tx.budgetKey} caben en el presupuesto del mes.`,
-          cat.allowsHucha ? ' ¿Quieres pagar una parte con alguna hucha?' : '')
-      : el('p', {}, 'Este gasto ya está cubierto del todo.');
-
-  const body = el('div', { class: 'coverage' },
+  const body = el('div', { class: 'coverage' }, ...[
     head,
     existing.length > 0 ? _existingBlock(existing, onDone) : null,
-    elective && shortfall > 0
-      ? el('p', { class: 'muted small' }, 'Antes de tirar del colchón, decide qué otro gasto sacrificas.')
-      : null,
-    ...(target <= 0 ? [] : sourceNodes.length ? sourceNodes
-        : [el('p', { class: 'muted small' }, 'No hay ninguna fuente disponible ahora mismo.')]),
-    target > 0 ? footerInfo : null,
-  );
+    uncovered > 0 ? huchaNode : null,
+    uncovered > 0 ? breakdown : null,
+    uncovered > 0 && shortfall > 0 ? deficitBlock : null,
+  ].filter(Boolean));
   refresh();
 
-  const footer = el('div', { style: { display: 'contents' } },
+  const footer = el('div', { style: { display: 'contents' } }, ...[
     el('button', { class: 'btn btn-secondary btn-sm', onclick: () => { closeModal(); onDone?.(); } },
-      manual ? 'Cerrar' : shortfall > 0 ? 'Dejar pendiente' : 'No, del mes'),
-    target > 0
-      ? el('button', { class: 'btn btn-primary btn-sm', onclick: () => _confirm(tx, rows, target, onDone) }, 'Confirmar')
+      manual ? 'Cerrar' : canHucha ? 'Todo del mes' : 'Dejar pendiente'),
+    uncovered > 0
+      ? el('button', { class: 'btn btn-primary btn-sm', onclick: () => _confirm(tx, hucha, monthRows, ctx, onDone) }, 'Confirmar')
       : null,
+  ].filter(Boolean));
+  openModal(manual ? 'De dónde salió el dinero' : canHucha ? '¿Cómo lo pagas?' : 'Cubrir el exceso', body, footer);
+}
+
+function _line(label, amount, hint = null, cls = '') {
+  return el('div', { class: `coverage-line ${cls}` },
+    el('span', {}, label, hint ? el('span', { class: 'muted small' }, ` · ${hint}`) : null),
+    el('b', {}, formatCurrency(amount)),
   );
-  openModal(manual ? 'De dónde salió el dinero' : shortfall > 0 ? 'Cubrir el exceso' : 'Pagar con hucha', body, footer);
 }
 
 /** Financiación ya registrada de este gasto, con opción de quitarla */
@@ -238,32 +249,48 @@ function _sourceRow(title, help, picker, input, useBtn) {
   );
 }
 
-async function _confirm(tx, rows, target, onDone) {
+async function _confirm(tx, hucha, monthRows, ctx, onDone) {
+  const { uncovered, shortfall } = ctx;
   const moves = [];
-  let total = 0;
-  for (const r of rows) {
-    const amount = _round(Number(r.input.value) || 0);
-    if (amount <= 0) continue;
+  const add = (r, amount) => {
     const src = r.source();
-    if (!src) { showToast('Elige la categoría de la que mover el dinero', 'error'); return; }
+    if (!src) { showToast('Elige la categoría de la que mover el dinero', 'error'); return false; }
     if (amount > _round(r.max()) + 0.001) {
       showToast(`No hay tanto disponible en ${src.source.replace(/^(HUCHA|CAT):/, '')}`, 'error');
+      return false;
+    }
+    moves.push({ date: _today(), month: tx.month, txId: tx.txId, amount, ...src, note: tx.description ?? '' });
+    return true;
+  };
+
+  // 1. Hucha: hasta el gasto entero (lo no cubierto aún)
+  const h = hucha ? _round(Number(hucha.input.value) || 0) : 0;
+  if (h > uncovered + 0.001) { showToast(`Con la hucha puedes cubrir como mucho ${formatCurrency(uncovered)}`, 'error'); return; }
+  if (h > 0 && !add(hucha, h)) return;
+
+  // 2. Fuentes del mes: solo para el déficit que queda tras la hucha
+  const deficit = _round(Math.max(0, shortfall - h));
+  if (deficit > 0) {
+    let total = 0;
+    for (const r of monthRows) {
+      const amount = _round(Number(r.input.value) || 0);
+      if (amount <= 0) continue;
+      total += amount;
+      if (!add(r, amount)) return;
+    }
+    if (_round(total) > deficit + 0.001) {
+      showToast(`Solo faltan ${formatCurrency(deficit)} del mes`, 'error');
       return;
     }
-    total += amount;
-    moves.push({ date: _today(), month: tx.month, txId: tx.txId, amount, ...src, note: tx.description ?? '' });
   }
-  if (_round(total) > _round(target) + 0.001) {
-    showToast(`Estás cubriendo más de ${formatCurrency(target)}`, 'error');
-    return;
-  }
+
   closeModal();
   if (moves.length === 0) { onDone?.(); return; }
 
   setLoading(true, 'Guardando…');
   try {
     await sheets.appendFunding(moves);
-    showToast('Cobertura guardada', 'success');
+    showToast('Financiación guardada', 'success');
   } catch (err) {
     showToast(`Error: ${err.message}`, 'error', 5000);
   } finally {

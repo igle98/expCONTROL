@@ -1504,4 +1504,9 @@ option {
 }
 .hucha-cats-wrap { display: flex; flex-direction: column; gap: var(--space-2); }
 .hucha-cats { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.coverage-breakdown { display: flex; flex-direction: column; gap: 2px; padding: var(--space-2) var(--space-3); background: var(--bg-input); border-radius: var(--radius-sm); }
+.coverage-line { display: flex; justify-content: space-between; gap: var(--space-2); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.coverage-line.coverage-pending { color: var(--warning); }
+.coverage-deficit { display: flex; flex-direction: column; gap: var(--space-2); }
+.coverage-deficit-head { margin: 0; }
 
