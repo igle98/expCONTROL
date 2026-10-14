@@ -52,16 +52,18 @@ export function openMonthClose(month, onDone) {
     // Lo ya registrado con "Ya la hice" ya se transfirió; aquí va lo que queda por mover
     const extra = leftovers.filter(l => l.select.value).reduce((t, l) => t + l.amount, 0);
     const pendingContrib = s.huchaPlanned.reduce((t, h) => t + Math.max(0, h.planned - h.done), 0);
-    const net = _round(pendingContrib + s.savingsFree + extra - s.retiradas);
+    // Lo pagado con huchas sale directamente de la cuenta de ahorro: no se resta aquí
+    const net = _round(pendingContrib + s.savingsFree + extra);
     transferEl.replaceChildren(...[
       el('div', { class: 'close-transfer-title' },
         Math.abs(net) < 0.005 ? '🏦 No hay nada que mover entre cuentas'
-          : net > 0 ? '🏦 Transfiere a la cuenta de ahorro' : '🏦 Pasa de la cuenta de ahorro a la del día a día',
+          : '🏦 Transfiere a la cuenta de ahorro',
         Math.abs(net) < 0.005 ? null : el('b', {}, formatCurrency(Math.abs(net)))),
       pendingContrib > 0 ? _line('Aportaciones a huchas sin registrar', pendingContrib, 'is-warn') : null,
       s.savingsFree > 0 ? _line('Ahorro libre previsto', s.savingsFree) : null,
       extra > 0 ? _line('Sobrantes que apartas', extra) : null,
-      s.retiradas > 0 ? _line('Gastos pagados con huchas (los pagaste desde el día a día)', -s.retiradas) : null,
+      s.retiradas > 0 ? el('div', { class: 'muted small' },
+        `Los ${formatCurrency(s.retiradas)} pagados con huchas ya salieron de la cuenta de ahorro (no cuentan aquí).`) : null,
       s.aportaciones > 0 ? el('div', { class: 'muted small' },
         `Ya registraste ${formatCurrency(s.aportaciones)} de aportaciones este mes (no cuentan aquí).`) : null,
     ].filter(Boolean));
