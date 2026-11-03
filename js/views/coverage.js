@@ -146,15 +146,20 @@ function _open(tx, ctx, onDone, manual) {
 
   const monthSources = {
     move: () => {
+      // Los fijos ya pagados este mes no se ofrecen: lo que "les queda" no es dinero libre
       const options = state.getBudgetKeysForMonth(tx.month)
         .filter(b => b.budgetKey !== tx.budgetKey)
-        .map(b => ({ key: b.budgetKey, left: state.getCategoryStatus(tx.month, b.budgetKey).disponible }))
-        .filter(o => o.left > 0)
-        .sort((a, b) => b.left - a.left);
+        .map(b => {
+          const st = state.getCategoryStatus(tx.month, b.budgetKey);
+          return { key: b.budgetKey, left: st.disponible, fixed: b.type === 'Fijo', paid: st.gastado > 0 };
+        })
+        .filter(o => o.left > 0 && !(o.fixed && o.paid))
+        .sort((a, b) => Number(a.fixed) - Number(b.fixed) || b.left - a.left);   // variables primero
       if (options.length === 0) return null;
       const select = el('select', { class: 'modal-select', onchange: refresh },
         el('option', { value: '' }, 'Elige de qué categoría…'),
-        ...options.map(o => el('option', { value: o.key }, `${o.key} (le quedan ${formatCurrency(o.left, true)})`)));
+        ...options.map(o => el('option', { value: o.key },
+          `${o.key} (le quedan ${formatCurrency(o.left, true)}${o.fixed ? ' · fijo aún sin pagar' : ''})`)));
       return monthSource('↔️ Mover de otra categoría', 'Le quitas a otra lo que no vas a gastar. Tú eliges cuál.',
         select, () => options.find(o => o.key === select.value)?.left ?? 0,
         () => select.value ? { source: `CAT:${select.value}`, kind: 'cobertura' } : null);
