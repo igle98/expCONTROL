@@ -7,7 +7,7 @@ import { typeFromCode, isValidCode } from './utils/categoryCodes.js';
 import { getToken } from './auth.js';
 import {
   setTransactions, setAllBudgetKeys, setSheetMeta, setBudgetHistory,
-  setMerchantMap, upsertMerchantMap, setDebts, setFutureItems, setPlanLines, setIncome, setHuchas, setFunding, setMonthCloses, sheetMeta,
+  setMerchantMap, upsertMerchantMap, setDebts, setFutureItems, setPlanLines, setIncome, setHuchas, setFunding, setMonthCloses, sheetMeta, funding,
 } from './state.js';
 
 // =========================================================
@@ -302,6 +302,19 @@ export async function saveMonthClose(month, summary) {
 export async function deleteMonthClose(rowIndex) {
   await deleteSheetRows(SHEETS.MONTH_CLOSE, [rowIndex + 1]);
   await loadMonthCloses();
+}
+
+/**
+ * Mueve al mes `month` los movimientos de FUNDING de un gasto (cuando se le cambia la fecha).
+ * @returns {Promise<number>} nº de movimientos movidos
+ */
+export async function moveFundingToMonth(txId, month) {
+  if (!txId) return 0;
+  const rows = funding.filter(f => f.txId === txId && f.month !== month);
+  if (rows.length === 0) return 0;
+  await _batchValuesUpdate(rows.map(f => ({ range: `${SHEETS.FUNDING}!B${f.rowIndex + 1}`, values: [[month]] })));
+  await loadFunding();
+  return rows.length;
 }
 
 /** Borra movimientos de FUNDING (por rowIndex: 1 = primera fila de datos) */

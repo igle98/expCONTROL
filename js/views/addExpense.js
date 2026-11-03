@@ -6,7 +6,7 @@
 import * as state   from '../state.js';
 import * as sheets  from '../sheets.js';
 import { el, showToast, setLoading } from '../utils/dom.js';
-import { formatCurrency } from '../utils/formatters.js';
+import { formatCurrency, formatDateLong, formatMonth } from '../utils/formatters.js';
 import { parseExpense } from '../expense/parser.js';
 import { normalizeMerchant } from '../expense/normalizer.js';
 import { classifyWithOpenAI, hasOpenAIKey } from '../expense/classifier.js';
@@ -23,15 +23,25 @@ export const SPECIAL_KEYWORDS = [
   { keyword: 'regalo',      budgetKey: 'GIFTS',        source: 'regalo'      },
 ];
 
+// Fecha con la que se apuntan los gastos. null = por defecto (ver _defaultDate).
+// Se mantiene entre gastos para poder meter varios del mismo día/mes seguidos.
+let _chosenDate = null;
+let _chosenForMonth = null;   // mes seleccionado en la app cuando se eligió
+
 export function render() {
   const root = document.getElementById(ROOT_ID);
   if (!root) return;
 
+  // Si se cambia de mes en el selector de la app, la fecha vuelve a la de por defecto
+  if (_chosenForMonth !== state.currentMonth) { _chosenDate = null; _chosenForMonth = state.currentMonth; }
+
   root.replaceChildren(
     _renderForm(),
+    el('div', { id: 'add-expense-date', class: 'add-expense-date' }),
     el('div', { id: 'add-expense-status', class: 'add-expense-status' }),
     el('div', { id: 'add-expense-result', class: 'add-expense-result' }),
   );
+  _renderDateRow();
 
   // Aviso si falta API key
   if (!hasOpenAIKey()) {
@@ -53,7 +63,7 @@ function _renderForm() {
     id: 'add-expense-input',
     type: 'text',
     class: 'add-expense-input',
-    placeholder: 'Ej: 12.50 mercadona ayer',
+    placeholder: 'Ej: 12.50 mercadona',
     autocomplete: 'off',
     autocapitalize: 'none',
     enterkeyhint: 'send',
@@ -94,7 +104,11 @@ async function _processInput(text, onDone) {
     return;
   }
 
-  const evt = { ...parsed, ...normalized };
+  // Fecha: la escrita en el texto ("ayer", "28 de octubre") manda; si no, la del selector
+  const evt = { ...parsed, ...normalized, date: parsed.explicitDate ? parsed.date : _effectiveDate() };
+  if (state.getMonthClose(evt.date.slice(0, 7))) {
+    showToast(`Ojo: ${formatMonth(evt.date.slice(0, 7))} está cerrado. El gasto se apunta igual; reabre el cierre si quieres que cuente en él.`, 'info', 6000);
+  }
 
   // 1) Special keywords → categoría directa, sin IA
   const special = _matchSpecial(evt.merchant_raw);
@@ -302,6 +316,62 @@ function _buildSummary(evt, decision, type, budget) {
     return `${head}\nGastado: ${formatCurrency(spent)} de ${formatCurrency(budget.monthlyBudget)} · Restante: ${formatCurrency(remaining)}`;
   }
   return head;
+}
+
+// =========================================================
+// Selector de fecha
+// =========================================================
+
+/** Fecha por defecto: hoy; si en la app está seleccionado un mes pasado, su último día */
+function _defaultDate() {
+  const today = _iso(new Date());
+  const month = state.currentMonth;
+  if (!month || month >= today.slice(0, 7)) return today;
+  const [y, m] = month.split('-').map(Number);
+  return _iso(new Date(y, m, 0));
+}
+
+function _effectiveDate() {
+  return _chosenDate ?? _defaultDate();
+}
+
+function _renderDateRow() {
+  const slot = document.getElementById('add-expense-date');
+  if (!slot) return;
+  const date = _effectiveDate();
+  const today = _iso(new Date());
+  const yesterday = _iso(new Date(Date.now() - 86400000));
+  const now = new Date();
+  const prevMonthDate = _iso(new Date(now.getFullYear(), now.getMonth(), 0));   // último día del mes pasado
+  const month = date.slice(0, 7);
+  const isOtherMonth = month !== today.slice(0, 7);
+  const closed = state.getMonthClose(month);
+
+  const set = (value) => { _chosenDate = value; _chosenForMonth = state.currentMonth; _renderDateRow(); };
+  const chip = (label, value, active) => el('button', {
+    type: 'button', class: `chip ${active ? 'chip-active' : ''}`, onclick: () => set(value),
+  }, label);
+
+  slot.replaceChildren(...[
+    el('div', { class: 'add-expense-date-row' },
+      el('input', {
+        type: 'date', class: 'modal-input add-expense-date-input', value: date, max: today,
+        onchange: (e) => { if (e.target.value) set(e.target.value); },
+      }),
+      chip('Hoy', today, date === today),
+      chip('Ayer', yesterday, date === yesterday),
+      chip(`Mes pasado (${formatMonth(prevMonthDate.slice(0, 7)).split(' ')[0]})`, prevMonthDate, month === prevMonthDate.slice(0, 7)),
+    ),
+    isOtherMonth ? el('p', { class: 'add-expense-date-note' },
+      `📅 Se apuntará el ${formatDateLong(date)}: cuenta para el presupuesto, el colchón y las huchas de `,
+      el('b', {}, formatMonth(month)), '.') : null,
+    closed ? el('p', { class: 'add-expense-date-note is-closed' },
+      `🔒 ${formatMonth(month)} está cerrado. Puedes apuntarlo igual, pero para que cuente en el cierre tendrás que reabrirlo.`) : null,
+  ].filter(Boolean));
+}
+
+function _iso(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 // =========================================================

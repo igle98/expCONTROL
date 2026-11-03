@@ -240,9 +240,12 @@ async function _saveEdit(tx) {
       merchantNorm: merchant,
       budgetKey:    category,
     });
+    // Si cambia de mes, su financiación (hucha, colchón, otras categorías…) se mueve con él
+    const newMonth = date.slice(0, 7);
+    const moved = newMonth !== tx.month ? await sheets.moveFundingToMonth(tx.txId, newMonth) : 0;
     await sheets.loadTransactions();
     render();
-    showToast('Gasto actualizado', 'success');
+    showToast(moved ? `Gasto movido a ${newMonth} junto con su financiación` : 'Gasto actualizado', 'success');
   } catch (err) {
     showToast(`Error al guardar: ${err.message}`, 'error');
   } finally {

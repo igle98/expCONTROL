@@ -12,7 +12,9 @@ const DATE_TEXT_RE = /(\d{1,2})\s*(de)?\s*(enero|febrero|marzo|abril|mayo|junio|
 
 /**
  * @param {string} text — p.ej. "12.50 mercadona ayer" o "5 cafe 7 de febrero"
- * @returns {{amount:number, currency:string, date:string, merchant_raw:string, description:string, source:string}}
+ * @returns {{amount:number, currency:string, date:string, explicitDate:boolean,
+ *            merchant_raw:string, description:string, source:string}}
+ *   explicitDate = el texto traía fecha ("ayer", "7 de febrero"); si no, `date` es hoy
  * @throws Error si el formato es inválido
  */
 export function parseExpense(text) {
@@ -29,9 +31,11 @@ export function parseExpense(text) {
 
   // 2) Fecha
   let date = new Date();
+  let explicitDate = false;
   const fullText = parts.join(' ').toLowerCase();
 
   if (fullText.includes('ayer')) {
+    explicitDate = true;
     date.setDate(date.getDate() - 1);
     const idx = parts.findIndex(p => p.toLowerCase() === 'ayer');
     if (idx !== -1) parts.splice(idx, 1);
@@ -41,8 +45,11 @@ export function parseExpense(text) {
   if (matchText) {
     const day = parseInt(matchText[1], 10);
     const month = MONTHS[matchText[3]];
-    const year = new Date().getFullYear();
-    date = new Date(year, month, day);
+    const today = new Date();
+    date = new Date(today.getFullYear(), month, day);
+    // Un gasto no puede ser futuro: "28 de diciembre" escrito en enero es del año pasado
+    if (date > today) date = new Date(today.getFullYear() - 1, month, day);
+    explicitDate = true;
 
     // Quitar la subcadena de fecha del merchant
     const joined = parts.join(' ');
@@ -59,6 +66,7 @@ export function parseExpense(text) {
     amount,
     currency:     'EUR',
     date:         _toISODate(date),
+    explicitDate,
     merchant_raw,
     description:  merchant_raw,
     source:       'pwa',
