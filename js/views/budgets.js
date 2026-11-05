@@ -64,14 +64,17 @@ export function render() {
   // En v2 cuenta lo consumido del mes (lo pagado con huchas ya estaba apartado)
   const consumed    = key => isV2 ? state.getCategoryStatus(month, key).consumido : (spendMap.get(key) ?? 0);
   const varSpent    = variables.reduce((s, b) => s + consumed(b.budgetKey), 0);
-  const varBudget   = variables.reduce((s, b) => s + b.monthlyBudget, 0);
+  // En v2 el total es la suma de los presupuestos ajustados (lo que muestra cada tarjeta):
+  // incluye lo recibido del colchón/otras categorías y descuenta lo cedido
+  const budgetOf    = b => isV2 ? state.getCategoryStatus(month, b.budgetKey).ajustado : b.monthlyBudget;
+  const varBudget   = variables.reduce((s, b) => s + budgetOf(b), 0);
   const fixedSpent  = fijos.reduce((s, b) => s + (spendMap.get(b.budgetKey) ?? 0), 0);
   const fixedBudget = fijos.reduce((s, b) => s + b.fixedAmount, 0);
 
   // Ordenación dentro de cada bloque
   const varSorted = [...variables].sort((a, b) => {
-    const pA = _pct(spendMap.get(a.budgetKey) ?? 0, a.monthlyBudget);
-    const pB = _pct(spendMap.get(b.budgetKey) ?? 0, b.monthlyBudget);
+    const pA = _pct(consumed(a.budgetKey), budgetOf(a));
+    const pB = _pct(consumed(b.budgetKey), budgetOf(b));
     return pB - pA;
   });
 
