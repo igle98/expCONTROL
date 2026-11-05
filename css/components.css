@@ -297,9 +297,10 @@ option {
 
 .budget-card-header {
   display: flex;
+  flex-wrap: wrap;               /* nombre largo → los importes bajan a la línea siguiente */
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-2);
+  gap: var(--space-1) var(--space-2);
 }
 
 .budget-card-name {
@@ -309,11 +310,9 @@ option {
   font-size: var(--text-sm);
   font-weight: var(--font-medium);
   color: var(--text-secondary);
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;       /* nombre completo, nunca cortado */
 }
 
 .budget-card-amounts {
@@ -321,6 +320,8 @@ option {
   font-size: var(--text-sm);
   color: var(--text-secondary);
   flex-shrink: 0;
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 .budget-card-amounts .spent {
@@ -1537,3 +1538,4 @@ option {
 .coverage-amount-row-3 { grid-template-columns: 1fr auto auto; }
 .coverage-add-move { align-self: flex-start; margin-top: var(--space-1); }
 
+.budget-refill-notice { display: block; width: 100%; margin-top: var(--space-2); padding: var(--space-2) var(--space-3); border: 0; border-radius: var(--radius-sm); background: var(--warning-dim); color: var(--warning); font-size: var(--text-sm); text-align: left; cursor: pointer; }

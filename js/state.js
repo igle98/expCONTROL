@@ -339,10 +339,14 @@ export function getPlanSourceMonth(month) {
   return best;
 }
 
-/** Líneas del plan aplicable a `month` (incluye las especiales '@…') */
+/**
+ * Líneas del plan aplicable a `month` (incluye las especiales '@…').
+ * Las reposiciones (@REPONER:…) son de su mes: no se arrastran a los siguientes.
+ */
 export function getPlanLinesForMonth(month) {
   const source = getPlanSourceMonth(month);
-  return source ? planLines.filter(l => l.month === source) : [];
+  if (!source) return [];
+  return planLines.filter(l => l.month === source && (source === month || !l.budgetKey.startsWith(REFILL_PREFIX)));
 }
 
 /** Ingresos registrados en el propio mes */
@@ -374,6 +378,8 @@ export function getPlannedTotal(month) {
 //   source 'IMPREVISTOS' | 'SIN_ASIGNAR' | 'CAT:<key>' + kind 'cobertura' → cubre parte del gasto tx_id
 
 export const HUCHA_PREFIX = '@HUCHA:';
+/** Línea del plan para reponer a una hucha lo que se sacó para tapar excesos */
+export const REFILL_PREFIX = '@REPONER:';
 
 /** Saldo actual de una hucha */
 export function getHuchaBalance(name) {
@@ -387,9 +393,55 @@ export function getHuchaBalance(name) {
   return Math.round(balance * 100) / 100;
 }
 
-/** Aportación prevista en el plan del mes para una hucha */
+/** Aportación prevista en el plan del mes para una hucha (normal + reposición) */
 export function getHuchaPlanned(month, name) {
-  return getPlanLinesForMonth(month).find(l => l.budgetKey === `${HUCHA_PREFIX}${name}`)?.amount ?? 0;
+  return getPlanLinesForMonth(month)
+    .filter(l => l.budgetKey === `${HUCHA_PREFIX}${name}` || l.budgetKey === `${REFILL_PREFIX}${name}`)
+    .reduce((s, l) => s + l.amount, 0);
+}
+
+/**
+ * ¿Esta retirada hay que reponerla? Sí cuando la hucha pagó un gasto de una categoría
+ * que NO está vinculada a ella (p. ej. FONDO EMERGENCIA tapando un exceso de SUPERMERCADO).
+ * Pagar regalos con NAVIDADES es su uso normal y no se repone.
+ */
+export function isRefillWithdrawal(f) {
+  if (f.kind !== 'retirada' || !f.txId || !f.source.startsWith('HUCHA:')) return false;
+  const tx = transactions.find(t => t.txId === f.txId);
+  if (!tx) return false;
+  const hucha = huchas.find(h => h.name === f.source.slice(6));
+  return !hucha?.categories?.includes(tx.budgetKey);
+}
+
+/**
+ * Lo que queda por reponer a una hucha con movimientos anteriores a `beforeMonth`.
+ * Orden cronológico: cada retirada "de emergencia" suma; cualquier aportación posterior resta.
+ * @returns {{amount:number, months:string[]}} months = meses de las retiradas aún sin reponer
+ */
+export function getHuchaRefillDue(name, beforeMonth) {
+  const src = `HUCHA:${name}`;
+  const moves = funding
+    .filter(f => f.source === src && f.month < beforeMonth && (f.kind === 'aportacion' || f.kind === 'retirada'))
+    .sort((a, b) => (a.date || `${a.month}-01`).localeCompare(b.date || `${b.month}-01`));
+  let due = 0;
+  let months = [];
+  for (const f of moves) {
+    if (f.kind === 'aportacion') {
+      due = Math.max(0, due - f.amount);
+      if (due < 0.005) { due = 0; months = []; }
+    } else if (isRefillWithdrawal(f)) {
+      due += f.amount;
+      if (!months.includes(f.month)) months.push(f.month);
+    }
+  }
+  return { amount: Math.round(due * 100) / 100, months };
+}
+
+/** Huchas activas con algo pendiente de reponer antes de `beforeMonth` */
+export function getRefillsDue(beforeMonth) {
+  return huchas.filter(h => h.status === 'active')
+    .map(h => ({ name: h.name, ...getHuchaRefillDue(h.name, beforeMonth) }))
+    .filter(r => r.amount > 0);
 }
 
 /** Aportación ya registrada (hecha) en el mes para una hucha */
@@ -506,12 +558,11 @@ export function getMonthSummary(month) {
   const sum = (arr, f) => arr.reduce((s, x) => s + f(x), 0);
   const moves = funding.filter(f => f.month === month && f.source.startsWith('HUCHA:'));
 
-  const huchaPlanned = getPlanLinesForMonth(month)
-    .filter(l => l.budgetKey.startsWith(HUCHA_PREFIX))
-    .map(l => {
-      const name = l.budgetKey.slice(HUCHA_PREFIX.length);
-      return { name, planned: l.amount, done: getHuchaContributed(month, name) };
-    });
+  const huchaNames = new Set(getPlanLinesForMonth(month)
+    .filter(l => l.budgetKey.startsWith(HUCHA_PREFIX) || l.budgetKey.startsWith(REFILL_PREFIX))
+    .map(l => l.budgetKey.slice(l.budgetKey.indexOf(':') + 1)));
+  const huchaPlanned = [...huchaNames].map(name =>
+    ({ name, planned: getHuchaPlanned(month, name), done: getHuchaContributed(month, name) }));
 
   const aportaciones = sum(moves.filter(f => f.kind === 'aportacion'), f => f.amount);
   const retiradas    = sum(moves.filter(f => f.kind === 'retirada'), f => f.amount);

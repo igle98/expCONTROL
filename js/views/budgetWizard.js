@@ -57,9 +57,22 @@ export function openBudgetWizard(month, onSaved) {
     lines.set(key, { included: plan.has(key), amount: plan.get(key) ?? 0 });
   }
 
+  // Reposiciones: lo sacado de huchas para tapar excesos en meses anteriores.
+  // Si el plan del mes ya tiene la línea se respeta; si no, se propone reponerlo entero.
+  const ownPlan = state.getPlanSourceMonth(month) === month;
+  const refills = new Map(state.getRefillsDue(month).map(r => [r.name, r]));
+  for (const h of state.huchas) {
+    const key = `${state.REFILL_PREFIX}${h.name}`;
+    const due = refills.get(h.name);
+    if (!due && !plan.has(key)) continue;
+    lines.set(key, plan.has(key) || !due
+      ? { included: plan.has(key), amount: plan.get(key) ?? 0 }
+      : { included: true, amount: due.amount });
+  }
+
   _w = {
-    month, onSaved, step: 0, cats, incomes, lines,
-    ownPlan: state.getPlanSourceMonth(month) === month,
+    month, onSaved, step: 0, cats, incomes, lines, refills,
+    ownPlan,
     incomeFrom: prevMonth,
     prevMonth: state.getPrevMonth(month),
   };
@@ -229,9 +242,24 @@ function _stepSavings() {
       ...list.map(h => _lineRow(`${state.HUCHA_PREFIX}${h.name}`, h.name, _huchaHint(h))),
     );
   };
+  const refillKeys = [..._w.lines.keys()].filter(k => k.startsWith(state.REFILL_PREFIX));
+  const refillGroup = refillKeys.length === 0 ? null : el('div', { class: 'plan-editor-group wizard-refill' },
+    el('div', { class: 'cat-group-title' }, '🔁 Reponer huchas'),
+    el('p', { class: 'muted small' },
+      'Dinero que sacaste de una hucha para tapar excesos del presupuesto. Lo que no repongas este mes se te volverá a proponer el siguiente.'),
+    ...refillKeys.map(key => {
+      const name = key.slice(state.REFILL_PREFIX.length);
+      const due = _w.refills.get(name);
+      const hint = due
+        ? `pendiente ${formatCurrency(due.amount, true)} · usado en ${due.months.map(m => formatMonth(m).split(' ')[0]).join(', ')}`
+        : 'ya repuesto';
+      return _lineRow(key, `Reponer ${name}`, hint);
+    }),
+  );
   return el('div', { class: 'wizard-step' },
     _stepIntro('Ahorro y huchas',
       'Lo que apartas a la cuenta de ahorro este mes, repartido por huchas. Mejor decidirlo ahora que ahorrar "lo que sobre".'),
+    refillGroup,
     group('objetivo', 'Objetivos'),
     group('provision', 'Provisiones'),
     el('div', { class: 'plan-editor-group' },

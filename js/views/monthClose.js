@@ -175,6 +175,8 @@ export function openMonthClose(month, onDone) {
       ...s.retiradasPorHucha.map(([name, amount]) => _line(`Pagado con ${name}`, -amount)),
     ) : null,
 
+    _refillSection(month),
+
     allocSection,
 
     transferEl,
@@ -251,6 +253,19 @@ async function _reopen(closed, onDone) {
   } finally {
     setLoading(false);
   }
+}
+
+/** Lo que habrá que reponer a las huchas por haber tapado excesos (incluye este mes) */
+function _refillSection(month) {
+  const next = state.getNextMonth(month);
+  const due = state.getRefillsDue(next);
+  if (due.length === 0) return null;
+  return _section('🔁 Pendiente de reponer a huchas',
+    el('p', { class: 'muted small' },
+      `Sacaste dinero de huchas para tapar excesos. Se te propondrá reponerlo en el presupuesto de ${formatMonth(next)}`,
+      ' (si al cerrar mandas sobrantes a esa hucha, cuentan como reposición).'),
+    ...due.map(r => _line(r.name, r.amount, 'is-warn',
+      `usado en ${r.months.map(m => formatMonth(m).split(' ')[0]).join(', ')}`)));
 }
 
 function _underLine(c) {

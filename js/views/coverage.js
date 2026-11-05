@@ -11,6 +11,8 @@ import { el, openModal, closeModal, showToast, setLoading } from '../utils/dom.j
 import { formatCurrency } from '../utils/formatters.js';
 import { isElectiveCode } from '../utils/categoryCodes.js';
 
+const EMERGENCY_HUCHA = 'FONDO EMERGENCIA';
+
 /**
  * Abre el diálogo de cobertura si hace falta. Devuelve false si no hay nada que decidir.
  * @param {{txId:string, month:string, budgetKey:string, amount:number, description?:string}} tx
@@ -217,6 +219,18 @@ function _open(tx, ctx, onDone, manual) {
       return monthSource('💶 Dinero sin asignar', `Te quedan ${formatCurrency(free)} de este mes sin presupuestar.`,
         null, () => free, () => ({ source: 'SIN_ASIGNAR', kind: 'cobertura' }));
     },
+    emergency: () => {
+      // Último recurso: la hucha FONDO EMERGENCIA. Lo que se saque se propone reponer el mes siguiente.
+      const fe = activeHuchas.find(h => h.name === EMERGENCY_HUCHA);
+      if (!fe) return null;
+      const src = `HUCHA:${fe.name}`;
+      const max = () => Math.max(0, state.getHuchaBalance(fe.name)
+        - (hucha && hucha.source().source === src ? H() : 0));
+      if (max() <= 0) return null;
+      return monthSource('🆘 Fondo de emergencia',
+        `Saldo ${formatCurrency(state.getHuchaBalance(fe.name))}. Lo que saques se te propondrá reponer en el presupuesto del mes siguiente.`,
+        null, max, () => ({ source: src, kind: 'retirada' }));
+    },
     reserve: () => {
       const { remaining } = state.getReserveStatus(tx.month);
       if (remaining <= 0) return null;
@@ -226,7 +240,8 @@ function _open(tx, ctx, onDone, manual) {
     },
   };
   // En electivos el colchón va siempre el último y nunca viene marcado
-  const order = elective ? ['move', 'unassigned', 'reserve'] : ['reserve', 'move', 'unassigned'];
+  // El fondo de emergencia es siempre el último recurso
+  const order = elective ? ['move', 'unassigned', 'reserve', 'emergency'] : ['reserve', 'move', 'unassigned', 'emergency'];
   const monthNodes = shortfall > 0 ? order.map(k => monthSources[k]()).filter(Boolean) : [];
   deficitBlock.append(...[
     deficitHead,

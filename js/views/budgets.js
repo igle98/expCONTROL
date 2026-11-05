@@ -131,7 +131,7 @@ function _renderToolbar(month, isV2, allBudgets) {
   const left        = incomeTotal - planned;
   const reserve     = state.getReserveStatus(month);
   const savings     = state.getPlanSpecial(month, SAVINGS_KEY)
-    + state.getPlanLinesForMonth(month).filter(l => l.budgetKey.startsWith(state.HUCHA_PREFIX)).reduce((s, l) => s + l.amount, 0);
+    + state.getPlanLinesForMonth(month).filter(l => l.budgetKey.startsWith(state.HUCHA_PREFIX) || l.budgetKey.startsWith(state.REFILL_PREFIX)).reduce((s, l) => s + l.amount, 0);
 
   const counts = new Map(FILTERS.map(f => [f.key, allBudgets.filter(f.test).length]));
 
@@ -168,6 +168,7 @@ function _renderToolbar(month, isV2, allBudgets) {
              reserve.planned ? `Colchón: quedan ${formatCurrency(reserve.remaining, true)} de ${formatCurrency(reserve.planned, true)}` : null,
             ].filter(Boolean).join(' · '))
         : null,
+      _refillNotice(month),
     ),
     el('div', { class: 'debts-filters budget-filters' },
       ...FILTERS.filter(f => f.key === 'all' || counts.get(f.key) > 0).map(f =>
@@ -177,6 +178,23 @@ function _renderToolbar(month, isV2, allBudgets) {
         }, f.key === 'all' ? f.label : `${f.label} (${counts.get(f.key)})`)),
     ),
   );
+}
+
+/**
+ * Aviso: hay dinero sacado de huchas para tapar excesos que el plan de este mes no repone.
+ * Solo en el mes en curso o futuros (los pasados ya no se presupuestan).
+ */
+function _refillNotice(month) {
+  if (month < _currentMonth()) return null;
+  const inPlan = new Set(state.getPlanLinesForMonth(month)
+    .filter(l => l.budgetKey.startsWith(state.REFILL_PREFIX) && l.amount > 0)
+    .map(l => l.budgetKey.slice(state.REFILL_PREFIX.length)));
+  const due = state.getRefillsDue(month).filter(r => !inPlan.has(r.name));
+  if (due.length === 0) return null;
+  return el('button', {
+    type: 'button', class: 'budget-refill-notice',
+    onclick: () => openBudgetWizard(month, () => render()),
+  }, `🔁 Pendiente de reponer: ${due.map(r => `${r.name} ${formatCurrency(r.amount, true)}`).join(' · ')}. Toca para añadirlo al presupuesto.`);
 }
 
 function _currentMonth() {
