@@ -130,18 +130,19 @@ function _open(tx, ctx, onDone, manual) {
   })();
 
   // ---------- Fuentes del mes para el déficit
+  const useButton = (input, max) => el('button', {
+    type: 'button', class: 'btn btn-secondary btn-sm',
+    onclick: () => {
+      const others = monthRows.filter(r => r.input !== input).reduce((s, r) => s + (Number(r.input.value) || 0), 0);
+      input.value = String(_round(Math.max(0, Math.min(max(), deficit() - others))));
+      refresh();
+    },
+  }, 'Usar');
+
   const monthSource = (title, help, picker, max, source) => {
     const input = amountInput();
     monthRows.push({ input, max, source });
-    const use = el('button', {
-      type: 'button', class: 'btn btn-secondary btn-sm',
-      onclick: () => {
-        const others = monthRows.filter(r => r.input !== input).reduce((s, r) => s + (Number(r.input.value) || 0), 0);
-        input.value = String(_round(Math.max(0, Math.min(max(), deficit() - others))));
-        refresh();
-      },
-    }, 'Usar');
-    return _sourceRow(title, help, picker, input, use);
+    return _sourceRow(title, help, picker, input, useButton(input, max));
   };
 
   const monthSources = {
@@ -156,13 +157,59 @@ function _open(tx, ctx, onDone, manual) {
         .filter(o => o.left > 0 && !(o.fixed && o.paid))
         .sort((a, b) => Number(a.fixed) - Number(b.fixed) || b.left - a.left);   // variables primero
       if (options.length === 0) return null;
-      const select = el('select', { class: 'modal-select', onchange: refresh },
-        el('option', { value: '' }, 'Elige de qué categoría…'),
-        ...options.map(o => el('option', { value: o.key },
-          `${o.key} (le quedan ${formatCurrency(o.left, true)}${o.fixed ? ' · fijo aún sin pagar' : ''})`)));
-      return monthSource('↔️ Mover de otra categoría', 'Le quitas a otra lo que no vas a gastar. Tú eliges cuál.',
-        select, () => options.find(o => o.key === select.value)?.left ?? 0,
-        () => select.value ? { source: `CAT:${select.value}`, kind: 'cobertura' } : null);
+
+      // Varias líneas "categoría + importe"; una categoría elegida no se ofrece en las demás
+      const moveRows = [];
+      const lines = el('div', { class: 'coverage-move-lines' });
+      const fillSelects = () => {
+        for (const row of moveRows) {
+          const taken = new Set(moveRows.filter(r => r !== row).map(r => r.select.value).filter(Boolean));
+          const current = row.select.value;
+          row.select.replaceChildren(
+            el('option', { value: '' }, 'Elige de qué categoría…'),
+            ...options.filter(o => !taken.has(o.key)).map(o => el('option', { value: o.key, selected: o.key === current },
+              `${o.key} (le quedan ${formatCurrency(o.left, true)}${o.fixed ? ' · fijo aún sin pagar' : ''})`)));
+        }
+        addBtn.classList.toggle('hidden', moveRows.length >= options.length);
+      };
+      const addLine = () => {
+        const select = el('select', { class: 'modal-select', onchange: () => { fillSelects(); refresh(); } });
+        const input = amountInput();
+        const row = {
+          select, input,
+          max: () => options.find(o => o.key === select.value)?.left ?? 0,
+          source: () => select.value ? { source: `CAT:${select.value}`, kind: 'cobertura' } : null,
+        };
+        monthRows.push(row);
+        moveRows.push(row);
+        const remove = el('button', {
+          type: 'button', class: 'btn btn-secondary btn-sm', title: 'Quitar',
+          onclick: () => {
+            monthRows.splice(monthRows.indexOf(row), 1);
+            moveRows.splice(moveRows.indexOf(row), 1);
+            row.node.remove();
+            fillSelects();
+            refresh();
+          },
+        }, '✕');
+        row.node = el('div', { class: 'coverage-move-line' },
+          select,
+          el('div', { class: 'coverage-amount-row coverage-amount-row-3' }, input, useButton(input, row.max), remove));
+        lines.appendChild(row.node);
+        fillSelects();
+      };
+      const addBtn = el('button', {
+        type: 'button', class: 'btn btn-secondary btn-sm coverage-add-move',
+        onclick: () => { addLine(); refresh(); },
+      }, '+ Otra categoría');
+      addLine();
+
+      return el('div', { class: 'coverage-source' },
+        el('div', { class: 'coverage-source-title' }, '↔️ Mover de otras categorías'),
+        el('div', { class: 'muted small' }, 'Le quitas a una o varias lo que no vas a gastar. Tú eliges cuáles.'),
+        lines,
+        addBtn,
+      );
     },
     unassigned: () => {
       const free = state.getUnassigned(tx.month);
