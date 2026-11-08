@@ -157,6 +157,7 @@ function _renderDebtItem(d) {
           ? el('span', { class: 'debt-item-badge debt-badge-cancelled' }, '✕ Cancelada')
           : null,
       ),
+      d.notes ? el('div', { class: 'debt-item-notes' }, d.notes) : null,
     ),
     el('div', { class: 'debt-item-amount' }, formatCurrency(d.amount)),
   );
@@ -261,10 +262,10 @@ function _openEditModal(d) {
     _inputGroup('debt-edit-date', 'Fecha', el('input', {
       id: 'debt-edit-date', class: 'modal-input', type: 'date', value: d.dateCreated,
     })),
-    _inputGroup('debt-edit-notes', 'Notas', el('input', {
-      id: 'debt-edit-notes', class: 'modal-input', type: 'text',
-      value: d.notes, maxlength: '200',
-    })),
+    _inputGroup('debt-edit-notes', 'Notas (quién te lo debe, cómo…)', el('textarea', {
+      id: 'debt-edit-notes', class: 'modal-input debt-notes-input', rows: '3', maxlength: '500',
+      placeholder: 'Ej: Juan 20 €, Pedro 20 €',
+    }, d.notes ?? '')),
     d.status !== 'pending'
       ? el('div', { class: 'debt-edit-status-note' },
           `Estado actual: ${_statusLabel(d.status)}${d.datePaid ? ` el ${formatDateShort(d.datePaid)}` : ''}`)
@@ -279,6 +280,7 @@ function _openEditModal(d) {
   if (d.status === 'pending') {
     footerChildren.push(
       el('button', { class: 'btn btn-secondary btn-sm', onclick: () => _markCancelled(d) }, 'Cancelar deuda'),
+      el('button', { class: 'btn btn-secondary btn-sm', onclick: () => _collectPart(d) }, 'Cobrar una parte'),
       el('button', { class: 'btn btn-success btn-sm', onclick: () => _markPaid(d) }, '✓ Cobrada'),
     );
   } else {
@@ -329,6 +331,34 @@ async function _markPaid(d) {
     await sheets.loadDebts();
     render();
     showToast(`Cobrado a ${d.person} 💸`, 'success');
+  } catch (err) {
+    showToast(`Error: ${err.message}`, 'error');
+  } finally {
+    setLoading(false);
+  }
+}
+
+/** Cobro parcial (p. ej. uno de los que te debían ya hizo el Bizum): separa lo cobrado y deja pendiente el resto */
+async function _collectPart(d) {
+  const raw = prompt(`¿Cuánto te han pagado de ${formatCurrency(d.amount)}?`);
+  if (raw === null) return;
+  const paid = Math.round(parseFloat(String(raw).replace(',', '.')) * 100) / 100;
+  if (isNaN(paid) || paid <= 0) { showToast('Importe inválido', 'error'); return; }
+  if (paid >= d.amount - 0.004) { await _markPaid(d); return; }
+  const who = (prompt('¿Quién te lo ha pagado? (opcional)') ?? '').trim();
+  const notes = document.getElementById('debt-edit-notes')?.value?.trim() ?? d.notes;
+  closeModal();
+  setLoading(true, 'Guardando cobro…');
+  try {
+    await sheets.updateDebt(d.rowIndex, { amount: Math.round((d.amount - paid) * 100) / 100, notes });
+    await sheets.appendDebt({
+      id: `${Date.now()}-parcial`, person: d.person, amount: paid, reason: d.reason,
+      dateCreated: d.dateCreated, status: 'paid', datePaid: _todayIso(),
+      notes: who ? `Pagado por ${who}` : 'Cobro parcial',
+    });
+    await sheets.loadDebts();
+    render();
+    showToast(`Cobrados ${formatCurrency(paid)}; quedan ${formatCurrency(d.amount - paid)}`, 'success');
   } catch (err) {
     showToast(`Error: ${err.message}`, 'error');
   } finally {

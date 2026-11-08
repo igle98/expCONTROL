@@ -383,6 +383,7 @@ export function getPlannedTotal(month) {
 //   source 'HUCHA:<n>' + kind 'aportacion' → entra dinero en la hucha
 //   source 'HUCHA:<n>' + kind 'retirada'   → sale para pagar el gasto tx_id
 //   source 'HUCHA:<n>' + kind 'ajuste'     → saldo inicial/corrección (puede ser negativo)
+//   source 'HUCHA:<n>' + kind 'descarte'   → reposición pendiente descartada (no cambia el saldo)
 //   source 'IMPREVISTOS' | 'SIN_ASIGNAR' | 'CAT:<key>' + kind 'cobertura' → cubre parte del gasto tx_id
 
 export const HUCHA_PREFIX = '@HUCHA:';
@@ -395,6 +396,7 @@ export function getHuchaBalance(name) {
   let balance = 0;
   for (const f of funding) {
     if (f.source !== src) continue;
+    if (f.kind === 'descarte') continue;
     if (f.kind === 'retirada') balance -= f.amount;
     else balance += f.amount;          // aportacion, ajuste
   }
@@ -429,12 +431,13 @@ export function isRefillWithdrawal(f) {
 export function getHuchaRefillDue(name, beforeMonth) {
   const src = `HUCHA:${name}`;
   const moves = funding
-    .filter(f => f.source === src && f.month < beforeMonth && (f.kind === 'aportacion' || f.kind === 'retirada'))
+    .filter(f => f.source === src && f.month < beforeMonth && ['aportacion', 'retirada', 'ajuste', 'descarte'].includes(f.kind))
     .sort((a, b) => (a.date || `${a.month}-01`).localeCompare(b.date || `${b.month}-01`));
   let due = 0;
   let months = [];
   for (const f of moves) {
-    if (f.kind === 'aportacion') {
+    // Repone: cualquier aportación, un ajuste de saldo al alza o descartarla a mano
+    if (f.kind === 'aportacion' || f.kind === 'descarte' || (f.kind === 'ajuste' && f.amount > 0)) {
       due = Math.max(0, due - f.amount);
       if (due < 0.005) { due = 0; months = []; }
     } else if (isRefillWithdrawal(f)) {

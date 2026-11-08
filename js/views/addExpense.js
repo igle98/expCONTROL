@@ -28,6 +28,13 @@ export const SPECIAL_KEYWORDS = [
 let _chosenDate = null;
 let _chosenForMonth = null;   // mes seleccionado en la app cuando se eligió
 
+// Gasto dividido: { people (contándote), invited } o null. Solo vale para el siguiente gasto.
+let _split = null;
+let _splitRefresh = null;     // repinta el resumen del reparto al teclear el importe
+
+/** Persona con la que se apuntan las deudas de un gasto dividido (se puede editar en Deudas) */
+const SPLIT_DEBT_PERSON = 'Pendiente de Bizum';
+
 export function render() {
   const root = document.getElementById(ROOT_ID);
   if (!root) return;
@@ -38,10 +45,12 @@ export function render() {
   root.replaceChildren(
     _renderForm(),
     el('div', { id: 'add-expense-date', class: 'add-expense-date' }),
+    el('div', { id: 'add-expense-split', class: 'add-expense-split' }),
     el('div', { id: 'add-expense-status', class: 'add-expense-status' }),
     el('div', { id: 'add-expense-result', class: 'add-expense-result' }),
   );
   _renderDateRow();
+  _renderSplitRow();
 
   // Aviso si falta API key
   if (!hasOpenAIKey()) {
@@ -67,6 +76,7 @@ function _renderForm() {
     autocomplete: 'off',
     autocapitalize: 'none',
     enterkeyhint: 'send',
+    oninput: () => _splitRefresh?.(),
   });
 
   const btn = el('button', {
@@ -249,29 +259,72 @@ function _renderCategoryPicker(evt, suggestion, onDone) {
 // =========================================================
 
 async function _confirmAndSave(evt, decision, onDone) {
+  // Ocio sin dividir: preguntar si ibas con más gente ("Solo yo" = un toque)
+  if (!_split && _isOcio(decision.budgetKey)) {
+    _askSplit(evt, decision, onDone);
+    return;
+  }
+  await _saveExpense(evt, decision, onDone, _split);
+}
+
+async function _saveExpense(evt, decision, onDone, split) {
+  if (split && !_validSplit(split)) return;
   setLoading(true, 'Guardando…');
   try {
     const budget = state.budgets.find(b => b.budgetKey === decision.budgetKey);
     const type = budget?.type ?? '';
     const tsIngest = new Date().toISOString();
-    const txId = `${Date.now()}-${evt.merchant_base || evt.merchant_norm || 'unknown'}`;
-
-    await sheets.appendTransaction({
-      txId,
+    const base = evt.merchant_base || evt.merchant_norm || 'unknown';
+    const txId = `${Date.now()}-${base}`;
+    const parts = split ? _splitParts(evt.amount, split) : null;
+    const tx = (fields) => sheets.appendTransaction({
       tsIngest,
       month:        evt.date.slice(0, 7),
       date:         evt.date,
-      amount:       evt.amount,
       currency:     evt.currency,
       merchantRaw:  evt.merchant_raw,
       merchantNorm: evt.merchant_norm,
       merchantBase: evt.merchant_base,
-      description:  evt.description,
+      ...fields,
+    });
+
+    // Mi parte (o el gasto entero si no se divide)
+    await tx({
+      txId,
+      amount:       parts ? parts.mine : evt.amount,
+      description:  parts ? `${evt.description} (mi parte de ${split.people})` : evt.description,
       budgetKey:    decision.budgetKey,
       type,
       confidence:   decision.confidence,
       merchantMapSource: decision.source,
     });
+
+    // Lo de los invitados → INVITACIONES
+    let invTxId = null;
+    if (parts?.invited > 0) {
+      const invKey = state.allBudgetKeys.some(c => c.budgetKey === 'INVITACIONES') ? 'INVITACIONES' : decision.budgetKey;
+      invTxId = `${Date.now()}-inv-${base}`;
+      await tx({
+        txId:         invTxId,
+        amount:       parts.invited,
+        description:  `${evt.description} (invito a ${split.invited})`,
+        budgetKey:    invKey,
+        type:         state.allBudgetKeys.find(c => c.budgetKey === invKey)?.type ?? type,
+        confidence:   1,
+        merchantMapSource: 'split',
+      });
+    }
+
+    // Lo que te devolverán por Bizum → Me deben
+    const owers = split ? split.people - 1 - split.invited : 0;
+    if (parts?.owed > 0) {
+      await sheets.appendDebt({
+        id: `${Date.now()}-bizum`, person: SPLIT_DEBT_PERSON, amount: parts.owed,
+        reason: `${evt.description || evt.merchant_norm} (${owers} ${owers === 1 ? 'persona' : 'personas'})`,
+        dateCreated: evt.date, status: 'pending', datePaid: '', notes: '',
+      });
+      await sheets.loadDebts();
+    }
 
     if (decision.saveToMap) {
       await sheets.appendMerchantMap({
@@ -289,16 +342,24 @@ async function _confirmAndSave(evt, decision, onDone) {
     await sheets.loadTransactions();
 
     // Mensaje de éxito (con remaining si es Variable)
-    const summary = _buildSummary(evt, decision, type, budget);
-    showToast(summary, 'success', 4500);
+    const summary = parts
+      ? `✅ ${formatCurrency(evt.amount)} dividido: tu parte ${formatCurrency(parts.mine)} → ${decision.budgetKey}` +
+        (parts.invited > 0 ? ` · invitas ${formatCurrency(parts.invited)}` : '') +
+        (parts.owed > 0 ? ` · te deben ${formatCurrency(parts.owed)} (en Deudas)` : '')
+      : _buildSummary(evt, decision, type, budget);
+    showToast(summary, 'success', 5000);
 
+    _split = null;
+    _renderSplitRow();
     _clearResult();
     _setStatus(null);
     if (typeof onDone === 'function') onDone();
 
     // Si no cabe en su categoría (o admite hucha), decidir de dónde sale el dinero
     const saved = state.transactions.find(t => t.txId === txId);
-    maybeOpenCoverage(saved);
+    const inv = invTxId ? state.transactions.find(t => t.txId === invTxId) : null;
+    const coverInv = () => { if (inv) maybeOpenCoverage(inv); };
+    if (!maybeOpenCoverage(saved, coverInv)) coverInv();
   } catch (err) {
     showToast('Error al guardar: ' + err.message, 'error', 5000);
     _setStatus(el('p', { class: 'banner banner-error' }, '❌ ' + err.message));
@@ -372,6 +433,112 @@ function _renderDateRow() {
 
 function _iso(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// =========================================================
+// Gasto dividido (pagas tú, invitas a algunos y otros te hacen Bizum)
+// =========================================================
+
+function _isOcio(budgetKey) {
+  return String(budgetKey ?? '').toUpperCase().startsWith('OCIO');
+}
+
+function _r2(n) { return Math.round(n * 100) / 100; }
+
+/** Reparto: tu parte, lo de los invitados y lo que te deben (los céntimos sueltos van a tu parte) */
+function _splitParts(total, split) {
+  const per = total / split.people;
+  const invited = _r2(per * split.invited);
+  const owed = _r2(per * (split.people - 1 - split.invited));
+  return { mine: _r2(total - invited - owed), invited, owed };
+}
+
+function _validSplit(split) {
+  if (!(split.people >= 2)) { showToast('Para dividir tenéis que ser al menos 2', 'error'); return false; }
+  if (split.invited < 0 || split.invited > split.people - 1) {
+    showToast(`Como mucho puedes invitar a ${split.people - 1}`, 'error');
+    return false;
+  }
+  return true;
+}
+
+function _currentAmount() {
+  try { return parseExpense(document.getElementById('add-expense-input')?.value ?? '').amount; } catch { return null; }
+}
+
+/** Campos "Somos" / "Invito a" con el reparto en vivo */
+function _splitEditor(split, getTotal) {
+  const summary = el('div', { class: 'split-summary' });
+  const refresh = () => {
+    const total = getTotal();
+    const valid = split.people >= 2 && split.invited >= 0 && split.invited <= split.people - 1;
+    if (!valid) {
+      summary.replaceChildren(el('span', { class: 'split-warn' },
+        split.people < 2 ? 'Tenéis que ser al menos 2' : `Como mucho puedes invitar a ${split.people - 1}`));
+      return;
+    }
+    const owers = split.people - 1 - split.invited;
+    if (!(total > 0)) {
+      summary.replaceChildren(`Tu parte 1/${split.people}` +
+        (split.invited ? ` · invitas ${split.invited}` : '') + (owers ? ` · te deben ${owers}` : ''));
+      return;
+    }
+    const p = _splitParts(total, split);
+    summary.replaceChildren(...[
+      el('span', {}, 'Tu parte ', el('b', {}, formatCurrency(p.mine))),
+      p.invited > 0 ? el('span', {}, ' · Invitaciones ', el('b', {}, formatCurrency(p.invited))) : null,
+      p.owed > 0 ? el('span', {}, ` · Te deben (${owers}) `, el('b', {}, formatCurrency(p.owed))) : null,
+    ].filter(Boolean));
+  };
+  const num = (label, key, min) => {
+    const input = el('input', {
+      type: 'number', inputmode: 'numeric', min, step: '1', class: 'modal-input split-input', value: String(split[key]),
+      oninput: () => { split[key] = Math.floor(Number(input.value) || 0); refresh(); },
+    });
+    return el('label', { class: 'split-field' }, el('span', {}, label), input);
+  };
+  refresh();
+  return { node: el('div', { class: 'split-editor' },
+    el('div', { class: 'split-fields' }, num('Somos (contándote)', 'people', '2'), num('Invito a', 'invited', '0')),
+    summary), refresh };
+}
+
+/** Botón "Dividir gasto" bajo la fecha (para cualquier categoría) */
+function _renderSplitRow() {
+  const slot = document.getElementById('add-expense-split');
+  if (!slot) return;
+  _splitRefresh = null;
+  if (!_split) {
+    slot.replaceChildren(el('button', {
+      type: 'button', class: 'chip', onclick: () => { _split = { people: 2, invited: 0 }; _renderSplitRow(); },
+    }, '👥 Dividir gasto'));
+    return;
+  }
+  const editor = _splitEditor(_split, _currentAmount);
+  _splitRefresh = editor.refresh;
+  slot.replaceChildren(el('div', { class: 'split-panel' },
+    el('div', { class: 'split-panel-head' },
+      el('b', {}, '👥 Gasto dividido'),
+      el('button', { type: 'button', class: 'chip', onclick: () => { _split = null; _renderSplitRow(); } }, '✕ No dividir')),
+    editor.node,
+    el('p', { class: 'muted small split-help' },
+      'Apunta el total que pagaste. Lo de los invitados va a INVITACIONES y lo que te devolverán, a Deudas.'),
+  ));
+}
+
+/** Gasto de ocio sin dividir: ¿ibas con más gente? */
+function _askSplit(evt, decision, onDone) {
+  _setStatus(null);
+  const split = { people: 2, invited: 0 };
+  const editor = _splitEditor(split, () => evt.amount);
+  _setResult(el('div', { class: 'suggestion-card' },
+    el('div', { class: 'suggestion-header' }, `🍻 ${formatCurrency(evt.amount)} en ${decision.budgetKey}: ¿ibas con más gente?`),
+    el('div', { class: 'suggestion-body' }, editor.node),
+    el('div', { class: 'suggestion-actions' },
+      el('button', { class: 'btn btn-secondary', onclick: () => _saveExpense(evt, decision, onDone, null) }, '🙋 Solo yo'),
+      el('button', { class: 'btn btn-primary', onclick: () => _saveExpense(evt, decision, onDone, split) }, '👥 Dividir y guardar'),
+    ),
+  ));
 }
 
 // =========================================================

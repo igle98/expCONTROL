@@ -86,7 +86,7 @@ function _row(h, balance) {
 function _openDetail(h) {
   const moves = state.getHuchaMoves(h.name);
   const balance = state.getHuchaBalance(h.name);
-  const labels = { aportacion: 'Aportación', retirada: 'Pago', ajuste: 'Ajuste' };
+  const labels = { aportacion: 'Aportación', retirada: 'Pago', ajuste: 'Ajuste', descarte: 'Reposición descartada' };
   const txById = new Map(state.transactions.map(t => [t.txId, t]));
 
   const body = el('div', { class: 'cat-form' },
@@ -96,6 +96,9 @@ function _openDetail(h) {
       : el('div', { class: 'hucha-moves' }, ...moves.slice(0, 30).map(m => {
           const tx = m.txId ? txById.get(m.txId) : null;
           const sign = m.kind === 'retirada' ? -1 : 1;
+          if (m.kind === 'descarte') return el('div', { class: 'hucha-move muted small' },
+            el('span', {}, `${formatDateShort(m.date || `${m.month}-01`)} · ${labels.descarte}`),
+            el('span', {}, `${formatCurrency(m.amount)} (no cambia el saldo)`));
           return el('div', { class: 'hucha-move' },
             el('span', {}, `${formatDateShort(m.date || `${m.month}-01`)} · ${labels[m.kind] ?? m.kind}`,
               tx ? el('span', { class: 'muted small' }, ` · ${tx.description || tx.budgetKey}`) : null,

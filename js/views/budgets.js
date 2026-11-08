@@ -1,8 +1,8 @@
 import * as state from '../state.js';
 import { getCategoryColor } from '../utils/colors.js';
 import { formatCurrency, calcPercent, formatMonth } from '../utils/formatters.js';
-import { el, show, hide } from '../utils/dom.js';
-import { saveBudgetSnapshot } from '../sheets.js';
+import { el, show, hide, showToast } from '../utils/dom.js';
+import { saveBudgetSnapshot, appendFunding } from '../sheets.js';
 import { isInvestmentCode } from '../utils/categoryCodes.js';
 import { openBudgetWizard, RESERVE_KEY, SAVINGS_KEY } from './budgetWizard.js';
 import { openMonthClose } from './monthClose.js';
@@ -193,10 +193,31 @@ function _refillNotice(month) {
     .map(l => l.budgetKey.slice(state.REFILL_PREFIX.length)));
   const due = state.getRefillsDue(month).filter(r => !inPlan.has(r.name));
   if (due.length === 0) return null;
-  return el('button', {
-    type: 'button', class: 'budget-refill-notice',
-    onclick: () => openBudgetWizard(month, () => render()),
-  }, `🔁 Pendiente de reponer: ${due.map(r => `${r.name} ${formatCurrency(r.amount, true)}`).join(' · ')}. Toca para añadirlo al presupuesto.`);
+  return el('div', { class: 'budget-refill-notice' },
+    el('div', {}, `🔁 Pendiente de reponer: ${due.map(r => `${r.name} ${formatCurrency(r.amount, true)}`).join(' · ')}.`),
+    el('div', { class: 'budget-refill-actions' },
+      el('button', { type: 'button', class: 'btn btn-secondary btn-sm', onclick: () => openBudgetWizard(month, () => render()) },
+        'Añadir al presupuesto'),
+      ...due.map(r => el('button', {
+        type: 'button', class: 'btn btn-secondary btn-sm', onclick: () => _skipRefill(r),
+      }, due.length > 1 ? `Ya cuadré ${r.name}` : 'Ya lo cuadré'))),
+  );
+}
+
+/** Descarta una reposición pendiente (p. ej. el saldo de la hucha ya se cuadró a mano) */
+async function _skipRefill(r) {
+  if (!confirm(`¿Olvidar los ${formatCurrency(r.amount)} pendientes de reponer a ${r.name}? El saldo de la hucha no cambia.`)) return;
+  // Se apunta en el mes de la última retirada, para que cuente desde el mes siguiente
+  const month = r.months[r.months.length - 1];
+  const [y, m] = month.split('-').map(Number);
+  const date = `${month}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
+  try {
+    await appendFunding([{ date, month, source: `HUCHA:${r.name}`, amount: r.amount, kind: 'descarte', note: 'reposición descartada' }]);
+    showToast(`Reposición de ${r.name} descartada`, 'success');
+  } catch (err) {
+    showToast(`Error: ${err.message}`, 'error', 5000);
+  }
+  render();
 }
 
 /** Aviso: transferencias entre cuentas pendientes para el presupuesto de este mes */
