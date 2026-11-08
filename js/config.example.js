@@ -181,6 +181,10 @@ export const DEFAULT_INCOME_KEYS = ['Nómina', 'Alba', 'Extra nómina', 'Extra p
 // type: objetivo | provision · status: active | archived · target_date: 'YYYY-MM' opcional
 // categories: categorías de gasto que suele pagar, separadas por comas (una hucha puede
 // servir a varias categorías y una categoría tener varias huchas)
+// Cuentas bancarias (pestañas ACCOUNTS y TRANSFERS, opcionales: si faltan en SHEETS se usan esos nombres)
+// ACCOUNTS:  name | main (SI/NO) | status | items (CAT:x,HUCHA:y,INC:z,@AHORRO…) | note
+// TRANSFERS: month | date | from | to | amount | note
+
 export const HUCHA_COL = {
   NAME:        0,
   TYPE:        1,

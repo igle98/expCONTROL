@@ -10,6 +10,7 @@ import * as sheets from '../sheets.js';
 import { el, openModal, closeModal, showToast, setLoading } from '../utils/dom.js';
 import { formatCurrency, formatMonth } from '../utils/formatters.js';
 import { isInvestmentCode } from '../utils/categoryCodes.js';
+import { openTransfers, pendingTransfers } from './accounts.js';
 
 export const RESERVE_KEY = '@IMPREVISTOS';
 export const SAVINGS_KEY = '@AHORRO';
@@ -418,6 +419,8 @@ async function _save() {
     await sheets.savePlanForMonth(month, planLines);
     showToast(`Presupuesto de ${formatMonth(month)} guardado`, 'success');
     onSaved?.();
+    // Con cuentas configuradas: cuánto pasar a cada una ahora que el presupuesto está validado
+    if (pendingTransfers(month).length) openTransfers(month, onSaved);
   } catch (err) {
     showToast(`Error: ${err.message}`, 'error', 5000);
   } finally {

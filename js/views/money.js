@@ -1,15 +1,17 @@
 // =========================================================
-// money.js — pestaña "Dinero": Deudas · Huchas · Compras futuras.
+// money.js — pestaña "Dinero": Deudas · Huchas · Cuentas · Compras futuras.
 // Tres botones arriba; se muestra una sección cada vez.
 // =========================================================
 
 import * as debts  from './debts.js';
 import * as huchas from './huchas.js';
 import * as future from './future.js';
+import * as accounts from './accounts.js';
 
 const TABS = [
   { key: 'debts',  label: '💰 Deudas',          sectionId: 'debts-section',  view: debts  },
   { key: 'huchas', label: '🐷 Huchas',          sectionId: 'huchas-section', view: huchas },
+  { key: 'accounts', label: '🏦 Cuentas',        sectionId: 'accounts-section', view: accounts },
   { key: 'future', label: '🗓️ Compras futuras', sectionId: 'future-section', view: future },
 ];
 

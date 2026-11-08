@@ -41,6 +41,12 @@ export let funding = [];
 /** @type {Array<{rowIndex:number, month:string, closedAt:string, summary:string}>} */
 export let monthCloses = [];
 
+/** Cuentas bancarias: [{ name, main, status, items:string[], note, rowIndex }] */
+export let accounts = [];
+
+/** Transferencias hechas entre cuentas: [{ month, date, from, to, amount, note, rowIndex }] */
+export let transfers = [];
+
 /** @type {Array} */
 export let budgetHistory = [];
 
@@ -75,6 +81,8 @@ export function setIncome(keys, lines) { incomeKeys = keys; incomeLines = lines;
 export function setHuchas(rows, saved) { huchas = rows; huchasSaved = saved; }
 export function setFunding(rows)      { funding = rows; }
 export function setMonthCloses(rows)  { monthCloses = rows; }
+export function setAccounts(rows)     { accounts = rows; }
+export function setTransfers(rows)    { transfers = rows; }
 export function setSheetMeta(meta)    { sheetMeta = meta; }
 export function setBudgetHistory(rows) { budgetHistory = rows; }
 export function setCurrentMonth(m)    { currentMonth = m; }
@@ -639,3 +647,123 @@ function _thisMonth() {
 function _toMonthKey(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
+
+// =========================================================
+// Cuentas bancarias y transferencias del mes
+// =========================================================
+// Cada cuenta (no principal) guarda en `items` lo que vive en ella:
+//   'CAT:<budget_key>'  categoría de gasto o inversión que se paga desde ella
+//   'HUCHA:<nombre>'    hucha cuyo dinero está en ella (incluye su reposición)
+//   'INC:<income_key>'  ingreso que entra en ella
+//   '@AHORRO' | '@IMPREVISTOS'
+// Lo que no esté en ninguna vive en la cuenta principal.
+
+/** Clave de cuenta para una línea del plan */
+export function planItemKey(budgetKey) {
+  if (budgetKey.startsWith(HUCHA_PREFIX))  return `HUCHA:${budgetKey.slice(HUCHA_PREFIX.length)}`;
+  if (budgetKey.startsWith(REFILL_PREFIX)) return `HUCHA:${budgetKey.slice(REFILL_PREFIX.length)}`;
+  if (budgetKey.startsWith('@')) return budgetKey;
+  return `CAT:${budgetKey}`;
+}
+
+export function getActiveAccounts() {
+  return accounts.filter(a => a.status === 'active');
+}
+
+/** Cuenta principal: la marcada o, si no hay ninguna marcada, la primera activa */
+export function getMainAccount() {
+  const act = getActiveAccounts();
+  return act.find(a => a.main) ?? act[0] ?? null;
+}
+
+/** Nombre de la cuenta donde vive un item (o null si no hay cuentas) */
+export function getAccountOf(item) {
+  const main = getMainAccount();
+  if (!main) return null;
+  return getActiveAccounts().find(a => !a.main && a !== main && a.items.includes(item))?.name ?? main.name;
+}
+
+/**
+ * Lo que necesita y lo que recibe cada cuenta en un mes, según el presupuesto.
+ * @returns {Array<{name, main, needs:Array<{key,amount}>, inflows:Array<{key,amount}>, need, inflow}>}
+ */
+export function getAccountBudget(month) {
+  const main = getMainAccount();
+  const map = new Map(getActiveAccounts().map(a => [a.name,
+    { name: a.name, main: a === main, needs: [], inflows: [], need: 0, inflow: 0 }]));
+  if (map.size === 0) return [];
+  for (const l of getPlanLinesForMonth(month)) {
+    if (!(l.amount > 0)) continue;
+    const acc = map.get(getAccountOf(planItemKey(l.budgetKey)));
+    acc.needs.push({ key: l.budgetKey, amount: l.amount });
+    acc.need += l.amount;
+  }
+  for (const l of getIncomeForMonth(month)) {
+    if (!(l.amount > 0)) continue;
+    const acc = map.get(getAccountOf(`INC:${l.incomeKey}`));
+    acc.inflows.push({ key: l.incomeKey, amount: l.amount });
+    acc.inflow += l.amount;
+  }
+  return [...map.values()];
+}
+
+/**
+ * Transferencias para dejar cada cuenta con lo que necesita su parte del presupuesto.
+ * Las cuentas a las que les sobra (p. ej. donde entra un ingreso) pagan primero a las
+ * que les falta; el resto lo pone la principal. Lo que sobre en una cuenta secundaria
+ * se propone pasarlo a la principal.
+ * @returns {{ list: Array<{from,to,amount,done,pending,leftover?:boolean}>, short:number, accounts:Array }}
+ */
+export function getTransferPlan(month) {
+  const accs = getAccountBudget(month);
+  if (accs.length < 2) return { list: [], short: 0, accounts: accs };
+  const r2 = n => Math.round(n * 100) / 100;
+  const bal = accs.map(a => ({ name: a.name, main: a.main, net: r2(a.inflow - a.need) }));
+  // Lo ya transferido este mes cuenta como hecho: solo se reparte lo que falta
+  // (así, si cambias el presupuesto después, no se proponen otra vez las mismas transferencias)
+  const done = transfers.filter(x => x.month === month);
+  for (const x of done) {
+    const from = bal.find(b => b.name === x.from);
+    const to   = bal.find(b => b.name === x.to);
+    if (from) from.net = r2(from.net - x.amount);
+    if (to)   to.net   = r2(to.net + x.amount);
+  }
+  const deficits = bal.filter(b => b.net < -0.004).sort((a, b) => a.net - b.net);
+  const surplus  = bal.filter(b => b.net > 0.004)
+    .sort((a, b) => Number(a.main) - Number(b.main) || b.net - a.net);   // secundarias primero
+  const list = [];
+  const push = (from, to, amount, extra = {}) => {
+    const t = list.find(x => x.from === from && x.to === to);
+    if (t) t.amount = r2(t.amount + amount); else list.push({ from, to, amount: r2(amount), ...extra });
+  };
+  let short = 0;
+  for (const d of deficits) {
+    let need = -d.net;
+    for (const s of surplus) {
+      if (need < 0.005) break;
+      if (s.net < 0.005) continue;
+      const amount = Math.min(need, s.net);
+      push(s.name, d.name, amount);
+      s.net = r2(s.net - amount);
+      need = r2(need - amount);
+    }
+    short += need;
+  }
+  const main = bal.find(b => b.main);
+  for (const s of surplus) {
+    if (!s.main && s.net > 0.004 && main) push(s.name, main.name, s.net, { leftover: true });
+  }
+  // list = lo que falta por mover; se le suman las ya hechas del mismo par para enseñarlas
+  for (const t of list) { t.pending = t.amount; t.done = 0; }
+  for (const x of done) {
+    const t = list.find(y => y.from === x.from && y.to === x.to);
+    if (t) { t.done = r2(t.done + x.amount); t.amount = r2(t.amount + x.amount); }
+    else list.push({ from: x.from, to: x.to, amount: x.amount, done: x.amount, pending: 0 });
+  }
+  for (const t of list) {           // fusiona los hechos repetidos del mismo par
+    const first = list.find(y => y.from === t.from && y.to === t.to);
+    if (first !== t) { first.amount = r2(first.amount + t.amount); first.done = r2(first.done + t.done); t.dup = true; }
+  }
+  return { list: list.filter(t => !t.dup), short: r2(short), accounts: accs };
+}
+

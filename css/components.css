@@ -1539,3 +1539,26 @@ option {
 .coverage-add-move { align-self: flex-start; margin-top: var(--space-1); }
 
 .budget-refill-notice { display: block; width: 100%; margin-top: var(--space-2); padding: var(--space-2) var(--space-3); border: 0; border-radius: var(--radius-sm); background: var(--warning-dim); color: var(--warning); font-size: var(--text-sm); text-align: left; cursor: pointer; }
+
+/* Cuentas y transferencias */
+.account-main-badge { margin-left: var(--space-2); font-size: var(--text-xs); color: var(--accent); font-weight: var(--font-medium); }
+.account-row.is-archived { opacity: .55; }
+.account-transfers { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-4); }
+.account-groups { display: flex; flex-direction: column; gap: var(--space-2); }
+.account-group { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); }
+.account-group summary { cursor: pointer; font-size: var(--text-sm); font-weight: var(--font-medium); }
+.account-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: var(--space-1) var(--space-3); margin-top: var(--space-2); }
+.account-item { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.transfers { display: flex; flex-direction: column; gap: var(--space-2); }
+.transfer-row { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-card); }
+.transfer-row.is-done { opacity: .6; }
+.transfer-main { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-2); }
+.transfer-route { font-weight: var(--font-semibold); }
+.transfer-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); }
+.transfer-ok { color: var(--success, var(--accent)); font-size: var(--text-sm); }
+.transfer-short { margin: 0; color: var(--warning); font-size: var(--text-sm); }
+.transfer-detail summary { cursor: pointer; }
+.transfer-account { margin-top: var(--space-2); }
+.budget-transfers-notice { background: var(--accent-dim); color: var(--text-primary); }
+
+.account-item input[type="checkbox"] { appearance: auto; flex: 0 0 auto; width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }

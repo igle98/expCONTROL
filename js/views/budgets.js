@@ -6,6 +6,7 @@ import { saveBudgetSnapshot } from '../sheets.js';
 import { isInvestmentCode } from '../utils/categoryCodes.js';
 import { openBudgetWizard, RESERVE_KEY, SAVINGS_KEY } from './budgetWizard.js';
 import { openMonthClose } from './monthClose.js';
+import { openTransfers, pendingTransfers } from './accounts.js';
 
 let _lastSnapshotMonth = null;
 
@@ -169,6 +170,7 @@ function _renderToolbar(month, isV2, allBudgets) {
             ].filter(Boolean).join(' · '))
         : null,
       _refillNotice(month),
+      _transfersNotice(month),
     ),
     el('div', { class: 'debts-filters budget-filters' },
       ...FILTERS.filter(f => f.key === 'all' || counts.get(f.key) > 0).map(f =>
@@ -195,6 +197,17 @@ function _refillNotice(month) {
     type: 'button', class: 'budget-refill-notice',
     onclick: () => openBudgetWizard(month, () => render()),
   }, `🔁 Pendiente de reponer: ${due.map(r => `${r.name} ${formatCurrency(r.amount, true)}`).join(' · ')}. Toca para añadirlo al presupuesto.`);
+}
+
+/** Aviso: transferencias entre cuentas pendientes para el presupuesto de este mes */
+function _transfersNotice(month) {
+  if (month < _currentMonth() || state.getPlanSourceMonth(month) !== month) return null;
+  const pending = pendingTransfers(month);
+  if (pending.length === 0) return null;
+  return el('button', {
+    type: 'button', class: 'budget-refill-notice budget-transfers-notice',
+    onclick: () => openTransfers(month, () => render()),
+  }, `🏦 Transferencias pendientes: ${pending.map(t => `${t.to} ${formatCurrency(t.pending, true)}`).join(' · ')}. Toca para verlas.`);
 }
 
 function _currentMonth() {

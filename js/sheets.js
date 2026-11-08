@@ -8,6 +8,7 @@ import { getToken } from './auth.js';
 import {
   setTransactions, setAllBudgetKeys, setSheetMeta, setBudgetHistory,
   setMerchantMap, upsertMerchantMap, setDebts, setFutureItems, setPlanLines, setIncome, setHuchas, setFunding, setMonthCloses, sheetMeta, funding,
+  setAccounts, setTransfers,
 } from './state.js';
 
 // =========================================================
@@ -36,6 +37,8 @@ export async function loadAll() {
     loadHuchas(),
     loadFunding(),
     loadMonthCloses(),
+    loadAccounts(),
+    loadTransfers(),
     loadBudgetHistory(),
     loadMerchantMap(),
     loadDebts(),
@@ -270,6 +273,65 @@ async function _renameFundingSource(from, to) {
     if (i > 0 && String(r[0] ?? '').trim() === from) data.push({ range: `${SHEETS.FUNDING}!D${i + 1}`, values: [[to]] });
   });
   if (data.length) await _batchValuesUpdate(data);
+}
+
+// =========================================================
+// ACCOUNTS y TRANSFERS — cuentas bancarias y transferencias entre ellas
+// =========================================================
+
+const ACCOUNTS_SHEET  = SHEETS.ACCOUNTS  ?? 'ACCOUNTS';
+const TRANSFERS_SHEET = SHEETS.TRANSFERS ?? 'TRANSFERS';
+const ACCOUNTS_HEADER  = ['name', 'main', 'status', 'items', 'note'];
+const TRANSFERS_HEADER = ['month', 'date', 'from', 'to', 'amount', 'note'];
+
+/** Carga ACCOUNTS (vacío si la pestaña aún no existe) */
+export async function loadAccounts() {
+  const rows = await _readOptional(`${ACCOUNTS_SHEET}!A:E`) ?? [];
+  setAccounts(rows.slice(1).map((r, i) => ({
+    rowIndex: i + 1,
+    name:   String(r[0] ?? '').trim(),
+    main:   String(r[1] ?? '').trim().toUpperCase() === 'SI',
+    status: String(r[2] ?? '').trim().toLowerCase() || 'active',
+    items:  String(r[3] ?? '').split(',').map(x => x.trim()).filter(Boolean),
+    note:   String(r[4] ?? '').trim(),
+  })).filter(a => a.name));
+}
+
+/** Reescribe todas las cuentas */
+export async function saveAccounts(list) {
+  await ensureSheet(ACCOUNTS_SHEET, ACCOUNTS_HEADER);
+  await writeSheet(ACCOUNTS_SHEET, [ACCOUNTS_HEADER,
+    ...list.map(a => [a.name, a.main ? 'SI' : 'NO', a.status || 'active', (a.items ?? []).join(','), a.note ?? ''])]);
+  await loadAccounts();
+}
+
+/** Carga TRANSFERS (vacío si la pestaña aún no existe) */
+export async function loadTransfers() {
+  const rows = await _readOptional(`${TRANSFERS_SHEET}!A:F`) ?? [];
+  setTransfers(rows.slice(1).map((r, i) => ({
+    rowIndex: i + 1,
+    month:  String(r[0] ?? '').trim(),
+    date:   _parseDate(r[1]),
+    from:   String(r[2] ?? '').trim(),
+    to:     String(r[3] ?? '').trim(),
+    amount: _parseNumber(r[4]),
+    note:   String(r[5] ?? '').trim(),
+  })).filter(t => t.month && t.amount));
+}
+
+/** Registra transferencias hechas */
+export async function appendTransfers(list) {
+  if (list.length === 0) return;
+  await ensureSheet(TRANSFERS_SHEET, TRANSFERS_HEADER);
+  await appendRows(TRANSFERS_SHEET, list.map(t => [t.month, t.date, t.from, t.to, t.amount, t.note ?? '']));
+  await loadTransfers();
+}
+
+/** Borra transferencias (por rowIndex: 1 = primera fila de datos) */
+export async function deleteTransfers(rowIndexes) {
+  if (rowIndexes.length === 0) return;
+  await deleteSheetRows(TRANSFERS_SHEET, rowIndexes.map(i => i + 1));
+  await loadTransfers();
 }
 
 // =========================================================
