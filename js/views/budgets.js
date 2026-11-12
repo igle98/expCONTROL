@@ -195,6 +195,7 @@ function _refillNotice(month) {
   if (due.length === 0) return null;
   return el('div', { class: 'budget-refill-notice' },
     el('div', {}, `🔁 Pendiente de reponer: ${due.map(r => `${r.name} ${formatCurrency(r.amount, true)}`).join(' · ')}.`),
+    el('div', { class: 'small' }, ...due.map(r => `Por pagar con ${r.name} gastos de ${r.categories.join(', ') || '?'}, que no están entre sus categorías. `)),
     el('div', { class: 'budget-refill-actions' },
       el('button', { type: 'button', class: 'btn btn-secondary btn-sm', onclick: () => openBudgetWizard(month, () => render()) },
         'Añadir al presupuesto'),

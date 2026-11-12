@@ -388,6 +388,8 @@ function _defaultDate() {
   const today = _iso(new Date());
   const month = state.currentMonth;
   if (!month || month >= today.slice(0, 7)) return today;
+  // Mes pasado ya cerrado: lo normal es estar apuntando gastos de hoy, no de ese mes
+  if (state.getMonthClose(month)) return today;
   const [y, m] = month.split('-').map(Number);
   return _iso(new Date(y, m, 0));
 }

@@ -252,7 +252,7 @@ function _stepSavings() {
       const name = key.slice(state.REFILL_PREFIX.length);
       const due = _w.refills.get(name);
       const hint = due
-        ? `pendiente ${formatCurrency(due.amount, true)} · usado en ${due.months.map(m => formatMonth(m).split(' ')[0]).join(', ')}`
+        ? `pendiente ${formatCurrency(due.amount, true)} · usado en ${due.months.map(m => formatMonth(m).split(' ')[0]).join(', ')} para ${due.categories.join(', ')}`
         : 'ya repuesto';
       return _lineRow(key, `Reponer ${name}`, hint);
     }),

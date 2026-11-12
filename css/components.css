@@ -1579,3 +1579,4 @@ option {
 .budget-refill-notice .budget-refill-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
 div.budget-refill-notice { cursor: default; }
 
+.hucha-refill-flag { color: var(--warning); font-size: var(--text-xs); }

@@ -8,7 +8,7 @@
 import * as state  from '../state.js';
 import * as sheets from '../sheets.js';
 import { el, openModal, closeModal, showToast, setLoading } from '../utils/dom.js';
-import { formatCurrency } from '../utils/formatters.js';
+import { formatCurrency, formatMonth } from '../utils/formatters.js';
 import { isElectiveCode } from '../utils/categoryCodes.js';
 
 const EMERGENCY_HUCHA = 'FONDO EMERGENCIA';
@@ -232,9 +232,12 @@ function _open(tx, ctx, onDone, manual) {
         null, max, () => ({ source: src, kind: 'retirada' }));
     },
     reserve: () => {
-      const { remaining } = state.getReserveStatus(tx.month);
-      if (remaining <= 0) return null;
-      return monthSource('🛟 Colchón de imprevistos', `Quedan ${formatCurrency(remaining)}.` +
+      const { planned, remaining } = state.getReserveStatus(tx.month);
+      // Agotado o sin colchón: decirlo (y de qué mes), en vez de no enseñar nada
+      if (remaining <= 0) return el('p', { class: 'muted small' },
+        planned > 0 ? `🛟 El colchón de ${formatMonth(tx.month)} está agotado (${formatCurrency(planned, true)} usados).`
+                    : `🛟 El presupuesto de ${formatMonth(tx.month)} no tiene colchón de imprevistos.`);
+      return monthSource(`🛟 Colchón de imprevistos de ${formatMonth(tx.month).split(' ')[0]}`, `Quedan ${formatCurrency(remaining)}.` +
         (elective ? ' Es un gasto electivo: úsalo solo si de verdad es una urgencia.' : ''),
         null, () => remaining, () => ({ source: 'IMPREVISTOS', kind: 'cobertura' }));
     },

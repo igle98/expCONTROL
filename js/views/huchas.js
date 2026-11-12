@@ -101,7 +101,8 @@ function _openDetail(h) {
             el('span', {}, `${formatCurrency(m.amount)} (no cambia el saldo)`));
           return el('div', { class: 'hucha-move' },
             el('span', {}, `${formatDateShort(m.date || `${m.month}-01`)} · ${labels[m.kind] ?? m.kind}`,
-              tx ? el('span', { class: 'muted small' }, ` · ${tx.description || tx.budgetKey}`) : null,
+              tx ? el('span', { class: 'muted small' }, ` · ${tx.description || tx.budgetKey} (${tx.budgetKey})`) : null,
+              state.isRefillWithdrawal(m) ? el('span', { class: 'hucha-refill-flag' }, ' · 🔁 a reponer: categoría no vinculada') : null,
               m.note && !tx ? el('span', { class: 'muted small' }, ` · ${m.note}`) : null),
             el('span', { class: sign < 0 ? 'hucha-negative' : 'hucha-positive' }, formatCurrency(sign * m.amount)),
           );

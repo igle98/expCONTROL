@@ -435,17 +435,20 @@ export function getHuchaRefillDue(name, beforeMonth) {
     .sort((a, b) => (a.date || `${a.month}-01`).localeCompare(b.date || `${b.month}-01`));
   let due = 0;
   let months = [];
+  let categories = [];      // categorías de los gastos que provocan la reposición (para explicarla)
   for (const f of moves) {
     // Repone: cualquier aportación, un ajuste de saldo al alza o descartarla a mano
     if (f.kind === 'aportacion' || f.kind === 'descarte' || (f.kind === 'ajuste' && f.amount > 0)) {
       due = Math.max(0, due - f.amount);
-      if (due < 0.005) { due = 0; months = []; }
+      if (due < 0.005) { due = 0; months = []; categories = []; }
     } else if (isRefillWithdrawal(f)) {
       due += f.amount;
       if (!months.includes(f.month)) months.push(f.month);
+      const key = transactions.find(t => t.txId === f.txId)?.budgetKey;
+      if (key && !categories.includes(key)) categories.push(key);
     }
   }
-  return { amount: Math.round(due * 100) / 100, months };
+  return { amount: Math.round(due * 100) / 100, months, categories };
 }
 
 /** Huchas activas con algo pendiente de reponer antes de `beforeMonth` */
