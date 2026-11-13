@@ -122,6 +122,19 @@ function _transferRow(month, t, plan, refresh) {
       !done && t.done > 0.004 ? ` · ya pasaste ${formatCurrency(t.done, true)}` : ''),
     done
       ? el('div', { class: 'transfer-actions' },
+          ...(() => {
+            const inv = plan.list.some(x => x.to === t.to && x.pending > 0.004) ? [] : _pendingInvestments(month, t.to);
+            if (inv.length === 0) return [];
+            return [el('button', {
+              type: 'button', class: 'btn btn-secondary btn-sm',
+              onclick: async () => {
+                setLoading(true, 'Apuntando inversión…');
+                try { await _registerInvestments(month, t.to); showToast('Inversión apuntada como pagada', 'success'); }
+                catch (err) { showToast(`Error: ${err.message}`, 'error', 5000); }
+                finally { setLoading(false); refresh(); }
+              },
+            }, `Apuntar ${inv.map(i => `${i.budgetKey} ${formatCurrency(i.amount, true)}`).join(' + ')} como pagado`)];
+          })(),
           el('span', { class: 'transfer-ok' }, '✓ Hecha'),
           el('button', { type: 'button', class: 'btn btn-secondary btn-sm', onclick: () => _undo(month, t, refresh) }, 'Deshacer'))
       : el('div', { class: 'transfer-actions' },
@@ -149,9 +162,17 @@ async function _markDone(month, list, refresh) {
       }
     }
     if (contributions.length) await sheets.appendFunding(contributions);
-    showToast(contributions.length
-      ? `Transferencia registrada y ${contributions.length} aportación(es) a huchas apuntadas`
-      : 'Transferencia registrada', 'success');
+    // Inversiones que viven en las cuentas ya completas: la transferencia ya las paga
+    let invested = 0;
+    for (const to of new Set(list.map(t => t.to))) {
+      if (state.getTransferPlan(month).list.some(t => t.to === to && t.pending > 0.004)) continue;
+      invested += await _registerInvestments(month, to);
+    }
+    const parts = [
+      contributions.length ? `${contributions.length} aportación(es) a huchas` : null,
+      invested ? `${invested} inversión(es) pagadas` : null,
+    ].filter(Boolean);
+    showToast(parts.length ? `Transferencia registrada · ${parts.join(' y ')}` : 'Transferencia registrada', 'success');
   } catch (err) {
     showToast(`Error: ${err.message}`, 'error', 5000);
   } finally {
@@ -162,12 +183,21 @@ async function _markDone(month, list, refresh) {
 
 async function _undo(month, t, refresh) {
   const contribs = state.funding.filter(f => f.kind === 'aportacion' && f.month === month && f.note === _contribNote(month, t.to));
+  const invTxs = _investmentTxs(month, t.to);
+  const extra = [
+    contribs.length ? `${contribs.length} aportación(es) a huchas` : null,
+    invTxs.length ? `${invTxs.length} inversión(es)` : null,
+  ].filter(Boolean);
   if (!confirm(`¿Deshacer la transferencia ${t.from} → ${t.to}?` +
-    (contribs.length ? ` También se quitarán las ${contribs.length} aportaciones a huchas que se apuntaron con ella.` : ''))) return;
+    (extra.length ? ` También se quitarán ${extra.join(' y ')} que se apuntaron con ella.` : ''))) return;
   setLoading(true, 'Deshaciendo…');
   try {
     await sheets.deleteTransfers(state.transfers.filter(x => x.month === month && x.from === t.from && x.to === t.to).map(x => x.rowIndex));
     if (contribs.length) await sheets.deleteFunding(contribs.map(f => f.rowIndex));
+    // De abajo arriba para que no se descoloquen las filas
+    for (const tx of [...invTxs].sort((a, b) => b.rowIndex - a.rowIndex)) {
+      await sheets.deleteTransaction(tx.rowIndex, state.sheetMeta['TRANSACTIONS']);
+    }
     showToast('Transferencia deshecha', 'success');
   } catch (err) {
     showToast(`Error: ${err.message}`, 'error', 5000);
@@ -178,6 +208,45 @@ async function _undo(month, t, refresh) {
 }
 
 function _contribNote(month, to) { return `transferencia ${month} → ${to}`; }
+
+/** Inversiones del plan que viven en la cuenta `to` y aún no están pagadas este mes */
+function _pendingInvestments(month, to) {
+  const out = [];
+  for (const l of state.getPlanLinesForMonth(month)) {
+    if (l.budgetKey.startsWith('@') || !(l.amount > 0)) continue;
+    const cat = state.allBudgetKeys.find(c => c.budgetKey === l.budgetKey);
+    if (!cat || !isInvestmentCode(cat.code)) continue;
+    if (state.getAccountOf(`CAT:${l.budgetKey}`) !== to) continue;
+    const left = Math.round((l.amount - state.getSpendByMonthAndKey(month, l.budgetKey)) * 100) / 100;
+    if (left > 0.004) out.push({ budgetKey: l.budgetKey, amount: left, type: cat.type });
+  }
+  return out;
+}
+
+/** Apunta como pagadas las inversiones pendientes de la cuenta `to`. Devuelve cuántas. */
+async function _registerInvestments(month, to) {
+  const pending = _pendingInvestments(month, to);
+  if (pending.length === 0) return 0;
+  const today = _today();
+  const date = today.startsWith(month) ? today : `${month}-01`;
+  for (const inv of pending) {
+    await sheets.appendTransaction({
+      txId: `${Date.now()}-inv-${inv.budgetKey.toLowerCase()}`,
+      tsIngest: new Date().toISOString(), month, date, amount: inv.amount, currency: 'EUR',
+      merchantRaw: 'transferencia', merchantNorm: 'transferencia', merchantBase: 'transferencia',
+      description: `Aportación ${inv.budgetKey} · ${_contribNote(month, to)}`,
+      budgetKey: inv.budgetKey, type: inv.type ?? 'Fijo', confidence: 1, merchantMapSource: 'transfer',
+    });
+  }
+  await sheets.loadTransactions();
+  return pending.length;
+}
+
+/** Inversiones apuntadas automáticamente con las transferencias a `to` */
+function _investmentTxs(month, to) {
+  const tag = ` · ${_contribNote(month, to)}`;
+  return state.transactions.filter(t => t.month === month && t.description.endsWith(tag));
+}
 
 /** Nombre legible de una línea del plan */
 export function planLabel(key) {
