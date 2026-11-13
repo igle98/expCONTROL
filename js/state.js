@@ -432,7 +432,12 @@ export function getHuchaRefillDue(name, beforeMonth) {
   const src = `HUCHA:${name}`;
   const moves = funding
     .filter(f => f.source === src && f.month < beforeMonth && ['aportacion', 'retirada', 'ajuste', 'descarte'].includes(f.kind))
-    .sort((a, b) => (a.date || `${a.month}-01`).localeCompare(b.date || `${b.month}-01`));
+    // Por mes y, dentro del mes, por fecha. Un pago se ordena por la fecha de SU GASTO: la del
+    // movimiento es la de cuando se registró, que puede ser posterior (p. ej. un gasto de octubre
+    // apuntado en noviembre quedaría detrás del "Ya lo cuadré", que se apunta el último día del mes).
+    .map(f => ({ f, at: (f.kind === 'retirada' && transactions.find(t => t.txId === f.txId)?.date) || f.date || `${f.month}-01` }))
+    .sort((a, b) => a.f.month.localeCompare(b.f.month) || a.at.localeCompare(b.at))
+    .map(x => x.f);
   let due = 0;
   let months = [];
   let categories = [];      // categorías de los gastos que provocan la reposición (para explicarla)
