@@ -277,8 +277,11 @@ async function _doDelete(tx) {
   try {
     const sheetId = state.sheetMeta['TRANSACTIONS'];
     await sheets.deleteTransaction(tx.rowIndex, sheetId);
+    // Su financiación deja de tener sentido: el colchón, la hucha o la categoría recuperan ese dinero
+    const fundingRows = tx.txId ? state.funding.filter(f => f.txId === tx.txId) : [];
+    if (fundingRows.length) await sheets.deleteFunding(fundingRows.map(f => f.rowIndex));
     render();
-    showToast('Gasto eliminado', 'success');
+    showToast(fundingRows.length ? 'Gasto eliminado (y su financiación devuelta)' : 'Gasto eliminado', 'success');
   } catch (err) {
     showToast(`Error al eliminar: ${err.message}`, 'error');
   } finally {

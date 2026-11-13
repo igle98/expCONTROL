@@ -525,6 +525,21 @@ export function getReserveStatus(month) {
   return { planned, used, remaining: planned - used };
 }
 
+/**
+ * Usos del colchón de un mes, con su gasto. `tx` es null si el gasto ya no existe
+ * (financiación huérfana: se puede liberar). `overCovered` = el gasto tiene más financiación que importe.
+ */
+export function getReserveMoves(month) {
+  return funding
+    .filter(f => f.month === month && f.kind === 'cobertura' && f.source === 'IMPREVISTOS')
+    .map(f => {
+      const tx = f.txId ? transactions.find(t => t.txId === f.txId) ?? null : null;
+      const covered = tx ? getTxCoverage(tx.txId).reduce((s, x) => s + x.amount, 0) : 0;
+      return { ...f, tx, overCovered: tx ? Math.round((covered - tx.amount) * 100) / 100 : 0 };
+    })
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+}
+
 /** Dinero del mes sin asignar: ingresos − presupuestado − lo ya usado para cubrir gastos */
 export function getUnassigned(month) {
   const income = getIncomeForMonth(month).reduce((s, l) => s + l.amount, 0);

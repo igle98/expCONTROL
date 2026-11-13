@@ -2,7 +2,8 @@ import * as state from '../state.js';
 import { getCategoryColor } from '../utils/colors.js';
 import { formatCurrency, calcPercent, formatMonth } from '../utils/formatters.js';
 import { el, show, hide, showToast } from '../utils/dom.js';
-import { saveBudgetSnapshot, appendFunding } from '../sheets.js';
+import { saveBudgetSnapshot, appendFunding, deleteFunding } from '../sheets.js';
+import { openCoverageForTx } from './coverage.js';
 import { isInvestmentCode } from '../utils/categoryCodes.js';
 import { openBudgetWizard, RESERVE_KEY, SAVINGS_KEY } from './budgetWizard.js';
 import { openMonthClose } from './monthClose.js';
@@ -94,6 +95,7 @@ export function render() {
   // En móvil se apilan; en iPad/PC quedan lado a lado.
   const varColumn = el('div', { class: 'budget-column budget-column-variables' },
     _summaryCard('Gastos Variables', varSpent, varBudget, true),
+    isV2 ? _reserveCard(month) : null,
     el('div', { class: 'budget-cards-grid' },
       ...varSorted.map(b => _variableCard(b, spendMap.get(b.budgetKey) ?? 0, isV2 ? state.getCategoryStatus(month, b.budgetKey) : null)),
     ),
@@ -265,6 +267,61 @@ function _outOfBudgetCard(budgets, month) {
 // =========================================================
 // Resumen (Variables / Fijos)
 // =========================================================
+
+/** Colchón de imprevistos del mes: previsto, usado y en qué gastos */
+function _reserveCard(month) {
+  const r = state.getReserveStatus(month);
+  const moves = state.getReserveMoves(month);
+  if (r.planned <= 0 && moves.length === 0) return null;
+  const pct = _pct(r.used, r.planned);
+  const orphans = moves.filter(m => !m.tx);
+
+  const item = (m) => {
+    const tx = m.tx;
+    return el('div', {
+      class: `reserve-move ${tx ? '' : 'is-orphan'}`,
+      role: tx ? 'button' : null, tabindex: tx ? '0' : null,
+      onclick: tx ? () => openCoverageForTx(tx, () => render()) : null,
+    },
+      el('div', { class: 'reserve-move-main' },
+        el('span', {}, tx ? `${tx.date.slice(8, 10)}/${tx.date.slice(5, 7)} · ${tx.description || tx.merchantNorm}` : '⚠️ Gasto borrado'),
+        el('span', { class: 'muted small' }, tx
+          ? ` · ${tx.budgetKey} (gasto de ${formatCurrency(tx.amount, true)})` : ` · ${m.note || 'sin gasto asociado'}`),
+        tx && m.overCovered > 0.004 ? el('span', { class: 'reserve-move-warn' },
+          ` · ⚠️ financiado ${formatCurrency(m.overCovered, true)} de más`) : null,
+      ),
+      el('b', {}, formatCurrency(m.amount)),
+    );
+  };
+
+  return el('details', { class: 'budget-card reserve-card', open: r.remaining <= 0 || orphans.length > 0 },
+    el('summary', { class: 'budget-card-header' },
+      el('div', { class: 'budget-card-name' }, el('span', {}, '🛟 COLCHÓN DE IMPREVISTOS')),
+      el('div', { class: 'budget-card-amounts' },
+        el('span', { class: 'spent' }, formatCurrency(r.used, true)),
+        el('span', {}, ` / ${formatCurrency(r.planned, true)}`)),
+    ),
+    el('div', { class: 'budget-progress-track' },
+      el('div', { class: `budget-progress-bar ${pct > 100 ? 'progress-red' : 'progress-green'}`, style: { width: `${Math.min(pct, 100)}%` } })),
+    el('div', { class: 'muted small' }, r.remaining > 0 ? `Quedan ${formatCurrency(r.remaining)}` : 'Agotado'),
+    moves.length === 0
+      ? el('p', { class: 'muted small' }, 'Aún no lo has usado este mes.')
+      : el('div', { class: 'reserve-moves' }, ...moves.map(item)),
+    orphans.length ? el('div', { class: 'reserve-orphans' },
+      el('p', { class: 'small' },
+        `${formatCurrency(orphans.reduce((s, m) => s + m.amount, 0))} del colchón están gastados en gastos que ya no existen (se borraron después de cubrirlos).`),
+      el('button', {
+        type: 'button', class: 'btn btn-secondary btn-sm',
+        onclick: async () => {
+          if (!confirm('¿Devolver al colchón ese dinero?')) return;
+          try { await deleteFunding(orphans.map(m => m.rowIndex)); showToast('Dinero devuelto al colchón', 'success'); }
+          catch (err) { showToast(`Error: ${err.message}`, 'error', 5000); }
+          render();
+        },
+      }, 'Devolverlo al colchón')) : null,
+    moves.length ? el('p', { class: 'muted small' }, 'Toca un gasto para ver o quitar su financiación.') : null,
+  );
+}
 
 function _summaryCard(label, spent, budget, showBar) {
   const children = [

@@ -1580,3 +1580,17 @@ option {
 div.budget-refill-notice { cursor: default; }
 
 .hucha-refill-flag { color: var(--warning); font-size: var(--text-xs); }
+
+/* Colchón de imprevistos en Presupuesto */
+.reserve-card { margin-bottom: var(--space-3); }
+.reserve-card > summary { cursor: pointer; list-style: none; }
+.reserve-card > summary::-webkit-details-marker { display: none; }
+.reserve-card .budget-progress-track { margin-top: var(--space-2); }
+.reserve-moves { display: flex; flex-direction: column; gap: var(--space-1); margin-top: var(--space-2); }
+.reserve-move { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-2); padding: var(--space-1) 0; border-bottom: 1px solid var(--border); font-size: var(--text-sm); cursor: pointer; }
+.reserve-move.is-orphan { cursor: default; color: var(--warning); }
+.reserve-move-main { min-width: 0; overflow-wrap: anywhere; }
+.reserve-move-warn { color: var(--warning); font-size: var(--text-xs); }
+.reserve-orphans { margin-top: var(--space-2); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--warning-dim); color: var(--warning); }
+.reserve-orphans p { margin: 0 0 var(--space-2); }
+
